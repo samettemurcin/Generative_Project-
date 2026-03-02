@@ -173,6 +173,13 @@ def _run_extract(
     gpt2_model.eval()
 
     logger.info("Models loaded and set to eval mode")
+    text_projection = None
+    if gpt2_model.config.n_embd != clip_model.config.projection_dim:
+        text_projection = torch.nn.Linear(gpt2_model.config.n_embd, clip_model.config.projection_dim, bias=False).to(
+            device)
+        torch.nn.init.kaiming_uniform_(text_projection.weight)
+        text_projection.weight.requires_grad_(False)
+        text_projection.eval()
 
     # ── Step 4: Embedding extraction ─────────────────────────────────────
     logger.info("Step 4/4: Extracting embeddings (%d samples, batch_size=%d)", len(valid_samples), batch_size)
@@ -203,7 +210,7 @@ def _run_extract(
             # GPT-2 text encoder → mean-pooled last hidden state [B, 512]
             text_outputs      = gpt2_model(input_ids=token_ids)
             text_hidden       = text_outputs.last_hidden_state   # [B, 77, 768]
-            text_embeddings   = _pool_and_project(text_hidden, target_dim=512)
+            text_embeddings   = _pool_and_project(text_hidden, projection=text_projection)
 
             # Move to CPU and convert to numpy before accumulating
             checkpointer.add_batch(
@@ -261,39 +268,11 @@ def _normalize(embeddings: torch.Tensor) -> torch.Tensor:
     return torch.nn.functional.normalize(embeddings, p=2, dim=-1)
 
 
-def _pool_and_project(
-    hidden_states: torch.Tensor,
-    target_dim:    int = 512,
-) -> torch.Tensor:
-    """
-    Mean-pool GPT-2 last hidden states and project to target_dim.
-
-    GPT-2 hidden size is 768 (for gpt2-base). CLIP image embeddings are 512.
-    We mean-pool across the sequence dimension then apply a simple linear
-    projection to align dimensions for M2 cross-modal operations.
-
-    NOTE: In M1 this projection is a fixed random linear layer (no training).
-          In M2 this will be replaced by the trained injection layer.
-          We initialize with kaiming_uniform for reasonable initial norms.
-
-    Shape: [B, seq_len, 768] → [B, target_dim]
-    """
-    # Mean pool: [B, seq_len, 768] → [B, 768]
+def _pool_and_project(hidden_states, projection=None):
     pooled = hidden_states.mean(dim=1)
-
-    hidden_dim = pooled.shape[-1]
-    if hidden_dim == target_dim:
+    if projection is None:
         return _normalize(pooled)
-
-    # Project 768 → 512 using a deterministic (seeded) linear layer
-    # Re-initializing each call is inefficient — this is acceptable for M1
-    # extraction. M2 will pass a trained projection layer explicitly.
-    proj = torch.nn.Linear(hidden_dim, target_dim, bias=False).to(pooled.device)
-    torch.nn.init.kaiming_uniform_(proj.weight)
-    proj.weight.requires_grad_(False)
-
-    projected = proj(pooled)
-    return _normalize(projected)
+    return _normalize(projection(pooled))
 
 
 def _log_class_distribution(data: dict) -> None:

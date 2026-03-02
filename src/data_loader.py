@@ -2,17 +2,17 @@
 data_loader.py — Data Ingestion Layer
 ======================================
 Responsibilities:
-  - Pull COCO Captions from HuggingFace datasets
+  - Pull COCO Captions from HuggingFace (shunk031/MSCOCO, Parquet-based)
   - Build a stratified candidate pool (target_n x pool_multiplier)
   - Return per-class raw candidate lists — no filtering, no transforms
   - Filtering and repair belong to preprocessor.py
 
 Design decisions:
-  - This module is intentionally dumb: it only fetches and stratifies.
-    Corrupt image detection requires decoding (a transform-time operation),
-    so it cannot be done reliably here without crashing DataLoader workers.
+  - Uses shunk031/MSCOCO which is Parquet-based and compatible with
+    datasets 3.x (replacing HuggingFaceM4/COCO which used a legacy script).
+  - Class matching is done via caption text scanning since the captions
+    task subset does not include object category annotations.
   - Streaming mode is used to avoid downloading the full COCO dataset.
-    Only the samples we need are downloaded.
   - Per-class candidate pools are built independently so shortfall handling
     in preprocessor.py has a clean reserve per class to draw from.
 
@@ -116,12 +116,16 @@ def build_candidate_pool(
     # Shuffled with a fixed seed for reproducibility.
     logger.info("Loading HuggingFace dataset: %s (split=%s, streaming=True)", dataset_cfg["name"], split)
     try:
-        ds = load_dataset(
-            dataset_cfg["name"],
-            split=split,
-            streaming=True,
-            trust_remote_code=True,
-        )
+        ds_kwargs = {
+            "split": split,
+            "streaming": True,
+        }
+        if "year" in dataset_cfg:
+            ds_kwargs["year"] = dataset_cfg["year"]
+        if "coco_task" in dataset_cfg:
+            ds_kwargs["coco_task"] = dataset_cfg["coco_task"]
+
+        ds = load_dataset(dataset_cfg["name"], **ds_kwargs)
         ds = ds.shuffle(seed=seed, buffer_size=10_000)
     except Exception as e:
         raise RuntimeError(
@@ -278,43 +282,17 @@ def _match_sample_to_class(
     it gives priority to classes listed earlier in config.yaml, which
     should be the more common/important ones.
     """
-    # Primary: check structured annotations if available
-    objects = sample.get("objects", {})
-
-    # HuggingFaceM4/COCO annotation format varies by subset.
-    # Try multiple known field structures defensively.
-    category_names: list[str] = []
-
-    if isinstance(objects, dict):
-        # Format: {"category": [...], "bbox": [...], ...}
-        raw = objects.get("category", objects.get("label", []))
-        if isinstance(raw, list):
-            category_names = [str(c).lower() for c in raw]
-
-    elif isinstance(objects, list):
-        # Format: [{"category_id": ..., "category_name": ...}, ...]
-        for obj in objects:
-            if isinstance(obj, dict):
-                name = obj.get("category_name", obj.get("name", ""))
-                if name:
-                    category_names.append(str(name).lower())
-
-    # Fallback: scan captions for class name keywords
-    # This is a weak signal but catches cases where annotation fields
-    # are absent (some COCO streaming subsets omit object annotations).
-    if not category_names:
-        captions = _extract_captions(sample)
-        caption_text = " ".join(captions).lower()
-        for cls in classes:
-            aliases = COCO_CLASS_ALIASES.get(cls, [cls])
-            if any(alias in caption_text for alias in aliases):
-                return cls
+    # shunk031/MSCOCO (captions task) does not include object category annotations.
+    # We match classes by scanning caption text — the captions field contains
+    # enough semantic content to identify the dominant subject reliably.
+    captions = _extract_captions(sample)
+    if not captions:
         return None
 
-    # Match category names against our target classes
+    caption_text = " ".join(captions).lower()
     for cls in classes:
         aliases = COCO_CLASS_ALIASES.get(cls, [cls])
-        if any(alias in category_names for alias in aliases):
+        if any(alias in caption_text for alias in aliases):
             return cls
 
     return None
@@ -327,23 +305,31 @@ def _extract_captions(sample: dict) -> list[str]:
     HuggingFaceM4/COCO stores captions in different fields depending
     on the dataset subset version. Try all known formats.
     """
-    # Format 1: sample["captions"]["raw"] -> list of strings
+    # Format 1: shunk031/MSCOCO — sample["annotations"] = [{"caption": "...", ...}, ...]
+    annotations = sample.get("annotations", [])
+    if isinstance(annotations, list) and annotations:
+        extracted = [a.get("caption", "") for a in annotations if isinstance(a, dict)]
+        extracted = [c.strip() for c in extracted if c]
+        if extracted:
+            return extracted
+
+    # Format 2: sample["captions"]["raw"] -> list of strings (HuggingFaceM4/COCO legacy)
     captions_field = sample.get("captions", {})
     if isinstance(captions_field, dict):
         raw = captions_field.get("raw", captions_field.get("text", []))
         if isinstance(raw, list) and raw:
             return [str(c) for c in raw if c]
 
-    # Format 2: sample["captions"] -> list of strings directly
+    # Format 3: sample["captions"] -> list of strings directly
     if isinstance(captions_field, list) and captions_field:
         return [str(c) for c in captions_field if c]
 
-    # Format 3: sample["caption"] -> single string
+    # Format 4: sample["caption"] -> single string
     single = sample.get("caption", "")
     if single:
         return [str(single)]
 
-    # Format 4: sample["sentences"] -> list of dicts with "raw" key
+    # Format 5: sample["sentences"] -> list of dicts with "raw" key
     sentences = sample.get("sentences", [])
     if isinstance(sentences, list):
         extracted = [s.get("raw", "") for s in sentences if isinstance(s, dict)]
@@ -372,7 +358,8 @@ def _build_record(sample: dict, label: str) -> dict | None:
     if image is None:
         return None
 
-    # Extract image ID — COCO uses integer IDs; stringify for consistency
+    # Extract image ID — shunk031/MSCOCO uses 'image_id' at top level
+    # Fallback to 'id' for other COCO dataset variants
     image_id = str(sample.get("image_id", sample.get("id", "unknown")))
 
     # Extract captions

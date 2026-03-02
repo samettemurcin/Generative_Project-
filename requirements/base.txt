@@ -16,7 +16,7 @@ tokenizers>=0.19.0
 safetensors>=0.4.0
 
 # --- Data & numerics ---
-numpy>=1.24.0,<2.0.0            # <2.0 required: numpy 2.x breaks HF tokenizers
+numpy>=1.24.0            # <2.0 required: numpy 2.x breaks HF tokenizers
                                  # Rust wheels on Windows Python 3.11
 Pillow>=10.0.0                   # Image loading, mode conversion, repair ops
 PyYAML>=6.0.0                    # config.yaml loading

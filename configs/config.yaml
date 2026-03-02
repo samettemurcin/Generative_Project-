@@ -22,8 +22,10 @@ pipeline:
 # Dataset
 # -----------------------------------------------------------------------------
 dataset:
-  name: "HuggingFaceM4/COCO"          # HuggingFace dataset identifier
+  name: "shunk031/MSCOCO"              # Parquet-based COCO, compatible with datasets 3.x
   split: "train"
+  year: 2017                           # MSCOCO year (2014 or 2017)
+  coco_task: "captions"                # captions | instances | person_keypoints
   target_n: 1000                       # Final number of samples to extract
   pool_multiplier: 3                   # Candidate pool = target_n × pool_multiplier
   max_retries: 3                       # Retry attempts before fallback repair

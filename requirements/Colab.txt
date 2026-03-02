@@ -31,9 +31,6 @@
 #   takes precedence, a runtime restart after install is required.
 # =============================================================================
 
-# datasets: force 2.x — our data_loader.py uses the 2.x streaming API
-datasets>=2.21.0,<3.0.0
-
 # Evaluation metrics — not pre-installed in Colab
 evaluate>=0.4.3
 sacrebleu>=2.4.0

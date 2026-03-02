@@ -31,8 +31,10 @@ def config(tmp_path):
     return {
         "pipeline": {"mode": "extract"},
         "dataset": {
-            "name":            "HuggingFaceM4/COCO",
-            "split":           "train",
+            "name": "shunk031/MSCOCO",
+            "split": "train",
+            "year": 2017,
+            "coco_task": "captions",
             "target_n":        20,
             "pool_multiplier": 3,
             "max_retries":     3,
