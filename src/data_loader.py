@@ -120,6 +120,8 @@ def build_candidate_pool(
             "split": split,
             "streaming": True,
         }
+        if "revision" in dataset_cfg:
+            ds_kwargs["revision"] = dataset_cfg["revision"]
         if "year" in dataset_cfg:
             ds_kwargs["year"] = dataset_cfg["year"]
         if "coco_task" in dataset_cfg:
@@ -305,6 +307,10 @@ def _extract_captions(sample: dict) -> list[str]:
     HuggingFaceM4/COCO stores captions in different fields depending
     on the dataset subset version. Try all known formats.
     """
+    # Format 0: nlphuji/flickr30k — sample["caption"] = ["str1", "str2", ...]
+    caption_field = sample.get("caption", None)
+    if isinstance(caption_field, list) and caption_field and isinstance(caption_field[0], str):
+        return [c.strip() for c in caption_field if c.strip()]
     # Format 1: shunk031/MSCOCO — sample["annotations"] = [{"caption": "...", ...}, ...]
     annotations = sample.get("annotations", [])
     if isinstance(annotations, list) and annotations:
@@ -360,7 +366,7 @@ def _build_record(sample: dict, label: str) -> dict | None:
 
     # Extract image ID — shunk031/MSCOCO uses 'image_id' at top level
     # Fallback to 'id' for other COCO dataset variants
-    image_id = str(sample.get("image_id", sample.get("id", "unknown")))
+    image_id = str(sample.get("image_id", sample.get("img_id", sample.get("id", "unknown"))))
 
     # Extract captions
     captions = _extract_captions(sample)
