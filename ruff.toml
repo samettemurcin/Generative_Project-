@@ -1,0 +1,32 @@
+# =============================================================================
+# ruff.toml — Linter & Formatter Configuration
+# =============================================================================
+
+# Target Python 3.11 (local) — ruff uses this for syntax checks
+target-version = "py311"
+
+# Directories to check
+include = ["src/**/*.py", "tests/**/*.py"]
+
+[lint]
+# Rule sets enabled:
+#   E  — pycodestyle errors
+#   F  — pyflakes (undefined names, unused imports)
+#   I  — isort (import ordering)
+#   W  — pycodestyle warnings
+select = ["E", "F", "I", "W"]
+
+# Ignored rules:
+#   E501 — line too long (we allow up to 120 chars for readability)
+#   W291 — trailing whitespace (handled by formatter)
+ignore = ["E501", "W291"]
+
+# Maximum line length
+line-length = 120
+
+[format]
+# Use double quotes consistently
+quote-style = "double"
+
+# Indent with 4 spaces
+indent-style = "space"

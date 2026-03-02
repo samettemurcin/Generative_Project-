@@ -1,0 +1,93 @@
+# =============================================================================
+# ci.yml — GitHub Actions CI Pipeline
+# =============================================================================
+# Triggers: every push and pull request to main
+#
+# Scope (intentionally limited):
+#   1. Lint check via ruff — catches formatting and style errors
+#   2. Unit tests via pytest — CPU-only, no GPU, no model downloads
+#      (tests use synthetic tensors; CLIP/GPT-2 configs are small ~1MB)
+#
+# What is NOT in CI (by design):
+#   - Full pipeline run (requires GPU + COCO download)
+#   - Model weight downloads beyond config files
+#   - Colab-specific tests (run manually on Colab Pro)
+#
+# Runtime: ~2-3 minutes on GitHub free runners
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff==0.6.9
+
+      - name: Run ruff check
+        run: ruff check src/ tests/
+
+      - name: Run ruff format check
+        run: ruff format --check src/ tests/
+
+
+  test:
+    name: Unit Tests (pytest, CPU-only)
+    runs-on: ubuntu-latest
+    # Run tests even if lint fails so you see both results at once
+    needs: []
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements/local.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install CPU-only PyTorch
+        # CI runners have no GPU — install CPU build explicitly.
+        # Never use the CUDA index URL in CI.
+        run: pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
+
+      - name: Install project dependencies
+        run: pip install -r requirements/local.txt
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: |
+            logs/
+          if-no-files-found: ignore

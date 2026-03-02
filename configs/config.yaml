@@ -1,0 +1,194 @@
+# =============================================================================
+# generative_project_1 — Master Configuration
+# =============================================================================
+# Single source of truth for ALL parameters across all milestones.
+# Rules:
+#   1. Never hardcode values in src/ — always read from here.
+#   2. Sections marked [M2], [M3], [M4] are reserved — do not activate in M1.
+#   3. Add new parameters here first, then consume them in code.
+#   4. Changing this file is the ONLY thing needed to switch modes/strategies.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Pipeline Mode  — controls which modules are active
+# -----------------------------------------------------------------------------
+# M1: extract        → run CLIP + GPT-2 tokenizer, save embeddings
+# M2: generate       → run decoder with injection, save captions
+# M3: evaluate       → run metrics + fine-tuning experiments
+pipeline:
+  mode: "extract"                     # extract | generate | evaluate [M2/M3]
+
+# -----------------------------------------------------------------------------
+# Dataset
+# -----------------------------------------------------------------------------
+dataset:
+  name: "HuggingFaceM4/COCO"          # HuggingFace dataset identifier
+  split: "train"
+  target_n: 1000                       # Final number of samples to extract
+  pool_multiplier: 3                   # Candidate pool = target_n × pool_multiplier
+  max_retries: 3                       # Retry attempts before fallback repair
+  seed: 42                             # Reproducibility seed for all sampling
+
+  # 10 most frequent and visually distinct COCO categories.
+  # Swap freely — data_loader.py reads this at runtime.
+  classes:
+    - person
+    - car
+    - dog
+    - cat
+    - chair
+    - bottle
+    - bicycle
+    - bird
+    - laptop
+    - cup
+
+# -----------------------------------------------------------------------------
+# Sampling
+# -----------------------------------------------------------------------------
+sampling:
+  strategy: "flat_equal"               # flat_equal | proportional
+  # per_class is derived at runtime as target_n // len(classes).
+  # Listed here for documentation only — never read directly.
+  per_class: 100
+  balance_tolerance: 0.05              # Acceptable per-class deviation (±5%)
+
+# -----------------------------------------------------------------------------
+# Models
+# -----------------------------------------------------------------------------
+models:
+  clip: "openai/clip-vit-base-patch32"
+  gpt2: "gpt2"
+  # [M3] swap gpt2 for a fine-tuned checkpoint path when ready, e.g.:
+  # gpt2: "checkpoints/gpt2-finetuned-coco"
+
+# -----------------------------------------------------------------------------
+# Preprocessing
+# -----------------------------------------------------------------------------
+preprocessing:
+  image_size: 224                      # CLIP ViT-B/32 expected input resolution
+  max_token_length: 77                 # CLIP hard limit; GPT-2 truncated to match
+  use_clip_processor: true             # Delegate transforms to CLIPProcessor
+                                       # Never set false unless you own the math.
+
+  # Image validation thresholds — applied BEFORE CLIPProcessor
+  min_image_width: 64
+  min_image_height: 64
+  allowed_modes:                       # PIL modes accepted as-is
+    - "RGB"
+  repairable_modes:                    # PIL modes auto-converted to RGB
+    - "RGBA"
+    - "L"
+    - "P"
+    - "CMYK"
+
+  # Repair priority order (applied when retries exhausted)
+  repair_pipeline:
+    - "mode_convert"
+    - "pad"
+    - "upscale"
+
+# -----------------------------------------------------------------------------
+# Output — M1
+# -----------------------------------------------------------------------------
+output:
+  format: "npz"                        # numpy compressed; sufficient for ≤10k samples
+  dir: "outputs"
+  filename: "embeddings.npz"
+  checkpoint_every: 100                # Save partial results every N batches
+
+  # Versioned schema contract — extend for M2/M3, never remove existing keys
+  schema:
+    # M1 fields
+    image_embeddings: "image_embeddings"      # float32 [N, 512]
+    text_embeddings:  "text_embeddings"       # float32 [N, 512]
+    ids:              "ids"                   # str     [N]
+    labels:           "labels"               # str     [N]
+    # [M2] raw hidden states for injection (uncomment when needed)
+    # image_hidden_states: "image_hidden_states"  # float32 [N, 197, 768]
+    # [M2] generated captions
+    # captions_generated: "captions_generated"    # str     [N]
+    # [M3] metric scores per sample
+    # bleu_scores: "bleu_scores"                  # float32 [N]
+    # meteor_scores: "meteor_scores"              # float32 [N]
+    # cider_scores: "cider_scores"                # float32 [N]
+    # rouge_l_scores: "rouge_l_scores"            # float32 [N]
+
+# -----------------------------------------------------------------------------
+# [M2] Generation — RESERVED, do not activate in M1
+# -----------------------------------------------------------------------------
+generation:
+  # Embedding injection strategy into GPT-2 decoder
+  injection_method: "prefix"           # prefix | cross_attention
+  # prefix:         prepend CLIP embedding as soft prompt tokens
+  # cross_attention: inject via added cross-attention layers in GPT-2
+
+  # Decoding strategy
+  decoding_strategy: "beam"            # greedy | beam | nucleus
+  beam_width: 5                        # Used when decoding_strategy = beam
+  temperature: 1.0                     # Scaling logits; <1 sharper, >1 more random
+  top_p: 0.9                           # Nucleus sampling threshold
+  max_new_tokens: 50                   # Max caption tokens to generate
+
+  # Output
+  captions_file: "outputs/captions.jsonl"
+
+# -----------------------------------------------------------------------------
+# [M3] Fine-tuning — RESERVED, do not activate in M1
+# -----------------------------------------------------------------------------
+fine_tuning:
+  strategy: "lora"                     # full | lora | prefix_tuning
+  # LoRA hyperparameters
+  lora_rank: 8
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_target_modules:                 # GPT-2 attention projection layers
+    - "c_attn"
+    - "c_proj"
+  # Training
+  learning_rate: 5.0e-5
+  num_epochs: 3
+  warmup_steps: 100
+  gradient_accumulation_steps: 4
+  # Checkpointing
+  checkpoint_dir: "checkpoints"
+  save_every_n_epochs: 1
+
+# -----------------------------------------------------------------------------
+# [M3] Evaluation — RESERVED, do not activate in M1
+# -----------------------------------------------------------------------------
+evaluation:
+  metrics:
+    - "bleu"
+    - "meteor"
+    - "cider"
+    - "rouge_l"
+  # Parameter sensitivity sweep ranges
+  sensitivity:
+    temperatures: [0.5, 0.7, 1.0, 1.2]
+    beam_widths:  [1, 3, 5, 10]
+    top_p_values: [0.7, 0.9, 0.95]
+  results_file: "outputs/metrics.json"
+  plots_dir: "outputs/plots"
+
+# -----------------------------------------------------------------------------
+# Hardware
+# -----------------------------------------------------------------------------
+hardware:
+  batch_size: 32                       # Tuned for RTX 4060 8GB VRAM
+                                       # Reduce to 16 if OOM occurs
+  pin_memory: true                     # Auto-disabled on MPS in utils.py
+  # Set to 0 to force single-process loading (safe default on Windows/PyCharm)
+  # Set to null to let utils.py decide based on OS
+  num_workers_override: null
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+logging:
+  level: "INFO"                        # DEBUG | INFO | WARNING | ERROR
+  log_dir: "logs"
+  log_file: "pipeline.log"
+  max_bytes: 5242880                   # 5 MB per file before rotation
+  backup_count: 3
+  repair_log_file: "repairs.jsonl"     # Structured JSON lines for audit

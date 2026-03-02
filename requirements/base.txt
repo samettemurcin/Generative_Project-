@@ -1,0 +1,54 @@
+# =============================================================================
+# requirements/base.txt
+# Shared minimum bounds — inherited by local.txt and colab.txt
+# DO NOT install this file directly. Use local.txt or colab.txt instead.
+#
+# Pin philosophy:
+#   - Use >= for packages where minor updates are safe
+#   - Use ~= (compatible release) for packages with known breaking changes
+#   - Avoid exact == pins here — those live in environment-specific files
+# =============================================================================
+
+# --- Hugging Face ecosystem ---
+datasets>=2.21.0,<3.0.0         # 3.x has breaking API changes; stay on 2.x
+huggingface-hub>=0.24.0
+tokenizers>=0.19.0
+safetensors>=0.4.0
+
+# --- Data & numerics ---
+numpy>=1.24.0,<2.0.0            # <2.0 required: numpy 2.x breaks HF tokenizers
+                                 # Rust wheels on Windows Python 3.11
+Pillow>=10.0.0                   # Image loading, mode conversion, repair ops
+PyYAML>=6.0.0                    # config.yaml loading
+
+# --- Utilities ---
+tqdm>=4.66.0                     # Progress bars
+requests>=2.31.0                 # HF dataset downloads (pin for security)
+
+# --- Training infrastructure ---
+accelerate>=0.34.0               # Required by peft + Trainer
+
+# --- M3: Fine-tuning ---
+peft>=0.12.0                     # LoRA, prefix tuning on GPT-2
+
+# --- M3: Evaluation metrics ---
+evaluate>=0.4.3                  # Unified HF metrics interface
+sacrebleu>=2.4.0                 # BLEU — reproducible tokenisation
+rouge-score>=0.1.2               # ROUGE-L
+nltk>=3.9.0                      # METEOR
+pycocoevalcap==1.2               # CIDEr — pinned: no newer release exists
+pycocotools>=2.0.7               # pycocoevalcap dependency
+
+# --- M3: Visualisation ---
+matplotlib>=3.9.0
+seaborn>=0.13.0
+pandas>=2.0.0,<2.3.0            # <2.3.0: pandas 2.3 breaks datasets on some CI
+
+# --- M4: Notebooks ---
+#ipykernel>=6.29.0
+#ipywidgets>=8.1.0
+
+# --- Dev & CI ---
+ruff>=0.6.0                      # Linter + formatter
+pytest>=8.3.0                    # Unit tests
+pytest-mock>=3.14.0              # Mock torch/model calls in CPU-only CI

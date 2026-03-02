@@ -1,0 +1,101 @@
+# =============================================================================
+# requirements/local.txt
+# Target: PyCharm | Windows (CUDA 12.1) or macOS (MPS / CPU) | Python 3.11
+# =============================================================================
+#
+# INSTALLATION — run IN ORDER in PyCharm terminal:
+#
+# ── Windows (NVIDIA GPU, CUDA 12.1) ──────────────────────────────────────────
+#
+#   Step 1 — PyTorch CUDA (single line, PowerShell does not support \):
+#
+#     pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+#
+#   Verify:
+#     python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+#   Expected: True / NVIDIA GeForce RTX 4060
+#
+# ── macOS (Apple Silicon — MPS) ──────────────────────────────────────────────
+#
+#   Step 1 — PyTorch CPU/MPS build (PyTorch does NOT ship CUDA wheels for macOS):
+#
+#     pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
+#
+#   Verify:
+#     python -c "import torch; print(torch.backends.mps.is_available())"
+#   Expected: True (Apple Silicon M1/M2/M3)
+#             False (Intel Mac — will run on CPU, slower but functional)
+#
+# ── Both platforms ───────────────────────────────────────────────────────────
+#
+#   Step 2 — Everything else (same file for both platforms):
+#
+#     pip install -r requirements/local.txt
+#
+# NOTE: torch/torchvision/torchaudio are NOT listed below.
+#   pip ignores --index-url inside requirements files and silently installs
+#   CPU-only builds. Always install torch manually via Step 1 above.
+#
+# NOTE: pycocotools on macOS requires Xcode command line tools:
+#   xcode-select --install
+# =============================================================================
+
+# --- Hugging Face ecosystem ---
+transformers==4.44.2
+datasets==2.21.0
+huggingface-hub==0.24.7
+tokenizers==0.19.1
+safetensors==0.4.5
+
+# --- Data & numerics ---
+numpy==1.26.4
+Pillow==10.4.0
+PyYAML==6.0.2
+
+# --- Utilities ---
+tqdm==4.66.5
+requests==2.32.3
+
+# --- M2: Training infrastructure ---
+accelerate==0.34.2
+
+# --- M3: Fine-tuning ---
+peft==0.12.0
+
+# --- M3: Evaluation ---
+evaluate==0.4.3
+sacrebleu==2.4.3
+rouge-score==0.1.2
+nltk==3.9.1
+pycocoevalcap==1.2
+pycocotools==2.0.8
+
+# --- M3: Visualisation ---
+matplotlib==3.9.2
+seaborn==0.13.2
+pandas==2.2.3
+
+# --- M4: Notebooks ---
+ipykernel==6.29.5
+ipywidgets==8.1.5
+jupyter==1.1.1
+
+# --- Dev & CI ---
+ruff==0.6.9
+pytest==8.3.3
+pytest-mock==3.14.0
+
+# =============================================================================
+# SMOKE TEST — run after installation to confirm M1 readiness:
+#
+#   python -c "
+#   import torch, transformers, datasets, PIL, yaml, numpy
+#   from transformers import AutoProcessor, AutoModel, AutoTokenizer
+#   print('torch       :', torch.__version__)
+#   print('CUDA        :', torch.cuda.is_available())
+#   print('MPS         :', torch.backends.mps.is_available())
+#   print('transformers:', transformers.__version__)
+#   print('datasets    :', datasets.__version__)
+#   print('All M1 imports OK')
+#   "
+# =============================================================================

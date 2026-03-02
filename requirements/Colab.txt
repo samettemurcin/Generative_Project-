@@ -1,0 +1,64 @@
+# =============================================================================
+# requirements/colab.txt
+# Target: Google Colab Pro | Python 3.12 | CUDA 12.x | A100/V100
+# =============================================================================
+#
+# PHILOSOPHY — do NOT reinstall what Colab already has.
+# Colab Pro pre-installs a fully working CUDA stack. Reinstalling torch,
+# transformers, accelerate, or peft wastes 5-10 minutes per session and
+# risks breaking Colab's internal tooling.
+#
+# This file ONLY installs packages that Colab is missing.
+#
+# Colab Pro pre-installed versions (verified March 2026):
+#   torch            2.10.0 + cu12x
+#   torchvision      0.25.x
+#   transformers     5.0.0   ← MAJOR: Auto classes are now required
+#   accelerate       1.9.x
+#   peft             0.15.x
+#   datasets         3.x     ← MAJOR: our code pins <3.0.0 for API compat
+#   numpy            1.26.x or 2.x
+#
+# CODE COMPATIBILITY NOTE — transformers 5.0:
+#   Our src/ modules use AutoProcessor, AutoTokenizer, AutoModel.
+#   These are the v5-recommended pattern and work on both local (4.44)
+#   and Colab (5.0) without any code changes. Model-specific classes
+#   (CLIPProcessor, GPT2Tokenizer) are deprecated in v5.
+#
+# datasets 3.x NOTE:
+#   Colab ships datasets 3.x which has breaking API changes vs 2.x.
+#   We force 2.x here for compatibility. If Colab's pre-installed 3.x
+#   takes precedence, a runtime restart after install is required.
+# =============================================================================
+
+# datasets: force 2.x — our data_loader.py uses the 2.x streaming API
+datasets>=2.21.0,<3.0.0
+
+# Evaluation metrics — not pre-installed in Colab
+evaluate>=0.4.3
+sacrebleu>=2.4.0
+rouge-score>=0.1.2
+nltk>=3.9.0
+pycocoevalcap==1.2
+pycocotools>=2.0.7
+
+# Visualisation — ensure minimum versions
+matplotlib>=3.9.0
+seaborn>=0.13.0
+
+# Config & utilities
+PyYAML>=6.0.0
+tqdm>=4.66.0
+
+# =============================================================================
+# DO NOT ADD — Colab pre-installs these correctly:
+#   torch, torchvision, torchaudio
+#   transformers (5.0.0)
+#   accelerate
+#   peft
+#   numpy
+#   Pillow
+#   pandas
+#   requests
+#   ipykernel, ipywidgets
+# =============================================================================
