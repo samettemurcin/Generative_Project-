@@ -30,19 +30,21 @@ dataset:
   max_retries: 3                       # Retry attempts before fallback repair
   seed: 42                             # Reproducibility seed for all sampling
 
-  # 10 most frequent and visually distinct COCO categories.
+  # 10 visually distinct flickr30k/COCO object categories.
+  # Selected for near-zero caption co-occurrence — run the verification
+  # cell in IMPROVEMENT_PLAN.md (RISK-1) to confirm counts before changing.
   # Swap freely — data_loader.py reads this at runtime.
   classes:
-    - person
-    - car
-    - dog
-    - cat
-    - chair
-    - bottle
-    - bicycle
-    - bird
-    - laptop
-    - cup
+    - bicycle       # vehicle — distinct silhouette
+    - motorcycle    # vehicle — visually distinct from bicycle
+    - bus           # vehicle — dominant subject
+    - dog           # animal — frequent in flickr30k
+    - cat           # animal — distinct from dog
+    - chair         # furniture — very frequent indoors
+    - bench         # furniture/outdoor — distinct from chair
+    - umbrella      # accessory — unambiguous
+    - skateboard    # sport — unambiguous subject
+    - pizza         # food — clear visual, rare overlap
 
 # -----------------------------------------------------------------------------
 # Sampling

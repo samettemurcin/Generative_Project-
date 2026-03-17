@@ -31,10 +31,9 @@ def config(tmp_path):
     return {
         "pipeline": {"mode": "extract"},
         "dataset": {
-            "name": "shunk031/MSCOCO",
-            "split": "train",
-            "year": 2017,
-            "coco_task": "captions",
+            "name": "nlphuji/flickr30k",
+            "split": "test",
+            "revision": "refs/convert/parquet",
             "target_n":        20,
             "pool_multiplier": 3,
             "max_retries":     3,
@@ -220,6 +219,8 @@ def test_class_balance(config):
     """
     from src.data_loader import get_dataloader_splits
     from src.utils import get_per_class_target
+    import random
+    random.seed(42)
 
     classes    = config["dataset"]["classes"]
     per_class  = get_per_class_target(config)  # 10

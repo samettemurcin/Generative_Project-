@@ -1,12 +1,12 @@
 # Generative Project 1 — CLIP & GPT-2 Extraction Pipeline
 
-Milestone 1 of a multimodal image captioning project. This milestone builds the data pipeline and extracts image and text embeddings from MS COCO Captions using CLIP and GPT-2.
+Milestone 1 of a multimodal image captioning project. This milestone builds the data pipeline and extracts image and text embeddings from flickr30k using CLIP and GPT-2.
 
 ---
 
 ## What's Built
 
-- **Data pipeline** — streams 1,000 COCO image–caption pairs across 10 classes, with image validation, repair, and stratified sampling
+- **Data pipeline** — streams 1,000 flickr30k image–caption pairs across 10 classes, with image validation, repair, and stratified sampling
 - **CLIP image encoder** — extracts `[N, 512]` L2-normalized embeddings via `openai/clip-vit-base-patch32`
 - **GPT-2 text encoder** — tokenizes captions and extracts mean-pooled `[N, 512]` projected embeddings via `gpt2`
 - **Checkpointed output** — saves to `outputs/embeddings.npz` every 100 batches
@@ -18,9 +18,9 @@ Milestone 1 of a multimodal image captioning project. This milestone builds the 
 
 | | |
 |---|---|
-| Source | MS COCO Captions via `HuggingFaceM4/COCO` |
+| Source | flickr30k via `nlphuji/flickr30k` |
 | Size | 1,000 samples (configurable in `configs/config.yaml`) |
-| Classes | `person, car, dog, cat, chair, bottle, bicycle, bird, laptop, cup` |
+| Classes | `bicycle, motorcycle, bus, dog, cat, chair, bench, umbrella, skateboard, pizza` |
 | Balance | 100 samples per class |
 | Candidate pool | 3,000 (3× buffer for filtering and repair) |
 
@@ -33,7 +33,7 @@ generative_project_1/
 ├── configs/config.yaml          ← all parameters live here
 ├── src/
 │   ├── utils.py                 ← hardware detection, logging, config
-│   ├── data_loader.py           ← COCO streaming, candidate pool
+│   ├── data_loader.py           ← flickr30k streaming, candidate pool
 │   ├── preprocessor.py          ← validation, repair, transforms, tokenization
 │   ├── embeddings_io.py         ← save/load .npz, checkpointing
 │   └── pipeline.py              ← orchestrator
@@ -41,10 +41,9 @@ generative_project_1/
 │   └── baseline_colab.ipynb     ← full pipeline run on Colab Pro
 ├── tests/
 │   └── test_pipeline.py         ← 6 unit tests
-├── requirements/
-│   ├── local.txt                ← Windows (CUDA 12.1) + macOS (MPS) / Python 3.11
-│   └── colab.txt                ← Google Colab Pro / Python 3.12
-└── SETUP_GUIDE.md               ← full setup and workflow instructions
+└──requirements/
+    ├── local.txt                ← Windows (CUDA 12.1) + macOS (MPS) / Python 3.11
+    └── colab.txt                ← Google Colab Pro / Python 3.12
 ```
 
 ---
@@ -84,8 +83,6 @@ pytest tests/ -v
 
 1. `Runtime` → `Change runtime type` → **GPU → A100**
 2. Open `notebooks/baseline_colab.ipynb` and run all cells
-
-See [`SETUP_GUIDE.md`](SETUP_GUIDE.md) for detailed instructions and troubleshooting.
 
 ---
 

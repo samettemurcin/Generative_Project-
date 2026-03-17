@@ -2,17 +2,15 @@
 data_loader.py — Data Ingestion Layer
 ======================================
 Responsibilities:
-  - Pull COCO Captions from HuggingFace (shunk031/MSCOCO, Parquet-based)
   - Build a stratified candidate pool (target_n x pool_multiplier)
   - Return per-class raw candidate lists — no filtering, no transforms
   - Filtering and repair belong to preprocessor.py
 
 Design decisions:
-  - Uses shunk031/MSCOCO which is Parquet-based and compatible with
-    datasets 3.x (replacing HuggingFaceM4/COCO which used a legacy script).
-  - Class matching is done via caption text scanning since the captions
-    task subset does not include object category annotations.
-  - Streaming mode is used to avoid downloading the full COCO dataset.
+  - Class matching is done via caption text scanning since the current
+    dataset (nlphuji/flickr30k) provides captions only, not object
+    category annotations.
+  - Streaming mode is used to avoid downloading the full dataset.
   - Per-class candidate pools are built independently so shortfall handling
     in preprocessor.py has a clean reserve per class to draw from.
 
@@ -32,34 +30,21 @@ from datasets import load_dataset
 from src.utils import (
     get_candidate_pool_size,
     get_per_class_target,
-    load_config,
     set_seed,
 )
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# COCO category name → supercategory / annotation label mapping
-# COCO Captions via HuggingFace (HuggingFaceM4/COCO) stores category
-# information differently from raw COCO JSON. We match on the category
-# 'name' field inside each annotation object.
+# Caption-based class aliases
 # ---------------------------------------------------------------------------
 
-# Maps our config class names to the exact strings used in COCO annotations.
-# If a class name matches directly, no remapping is needed.
-# Extend this dict if you add classes that have non-obvious COCO names.
-COCO_CLASS_ALIASES: dict[str, list[str]] = {
-    "person":   ["person"],
-    "car":      ["car"],
-    "dog":      ["dog"],
-    "cat":      ["cat"],
-    "chair":    ["chair"],
-    "bottle":   ["bottle"],
-    "bicycle":  ["bicycle"],
-    "bird":     ["bird"],
-    "laptop":   ["laptop"],
-    "cup":      ["cup"],
-}
+# Maps config class names to caption text aliases for matching.
+# All current classes (RISK-1 replacement set) are single-word exact-match
+# terms, so the fallback `CLASS_CAPTION_ALIASES.get(cls, [cls])` handles
+# them natively.  Add entries here only for classes with non-obvious
+# caption aliases  (e.g., "motorbike": ["motorbike", "motorcycle"]).
+CLASS_CAPTION_ALIASES: dict[str, list[str]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -70,16 +55,16 @@ def build_candidate_pool(
     config: dict[str, Any],
 ) -> dict[str, list[dict]]:
     """
-    Build a stratified candidate pool from COCO Captions.
+    Build a stratified candidate pool from the configured dataset.
 
     Fetches (target_n * pool_multiplier) samples total, distributed evenly
     across all configured classes. Returns a dict mapping each class name
     to its list of raw candidate records.
 
     Each record is a plain dict with keys:
-        image_id  : str   — COCO image identifier
+        image_id  : str   — dataset image identifier
         image     : PIL.Image.Image — raw PIL image (not yet processed)
-        captions  : list[str] — all COCO reference captions for this image
+        captions  : list[str] — all reference captions for this image
         label     : str   — matched class name from config
 
     Args:
@@ -112,7 +97,7 @@ def build_candidate_pool(
         len(classes), per_class_pool_target, pool_size,
     )
 
-    # Load dataset in streaming mode — avoids downloading full COCO (~20GB).
+    # Load dataset in streaming mode — avoids downloading the full dataset locally.
     # Shuffled with a fixed seed for reproducibility.
     logger.info("Loading HuggingFace dataset: %s (split=%s, streaming=True)", dataset_cfg["name"], split)
     try:
@@ -138,16 +123,21 @@ def build_candidate_pool(
     # Per-class buckets — we fill until each reaches per_class_pool_target
     buckets: dict[str, list[dict]] = {cls: [] for cls in classes}
     scanned  = 0
-    max_scan = pool_size * 10  # Safety cap: scan at most 10x pool size
+    # Safety cap: for flickr30k (~31k samples) we need to scan most of the
+    # dataset if classes overlap heavily. Set to 15x to cover the full split
+    # without silently truncating. This cap exists to prevent infinite loops
+    # on malformed streams, not to limit throughput.
+    max_scan = pool_size * 15
 
     logger.info("Scanning dataset stream to fill per-class buckets...")
 
     for sample in ds:
         if scanned >= max_scan:
             logger.warning(
-                "Reached max scan limit (%d samples). "
-                "Some classes may have fewer candidates than target.",
+                "Reached max_scan limit (%d). Underfilled classes: %s. "
+                "Consider reducing target_n, changing classes, or increasing pool_multiplier.",
                 max_scan,
+                {c: len(buckets[c]) for c in classes if len(buckets[c]) < per_class_pool_target},
             )
             break
 
@@ -271,29 +261,25 @@ def _match_sample_to_class(
     classes: list[str],
 ) -> str | None:
     """
-    Determine if a COCO sample belongs to any of our target classes.
+    Determine if a sample belongs to any of our target classes.
 
-    HuggingFaceM4/COCO stores object annotations in sample['objects'],
-    which contains a list of category name strings. We check if any
-    category in the sample matches our target class list.
+    Matching is done by scanning caption text for class keyword presence.
+    This works for any caption-only dataset (flickr30k, COCO captions task)
+    because caption text reliably describes the dominant visual subject.
 
-    Returns the matched class name, or None if no match.
+    NOTE: Object-level annotation matching (e.g., COCO detection task) is
+    not used here because the current dataset (nlphuji/flickr30k) only
+    provides captions, not bounding box annotations.
 
-    NOTE: A sample may contain multiple objects. We assign it to the
-    FIRST matching class found (in config order). This is intentional —
-    it gives priority to classes listed earlier in config.yaml, which
-    should be the more common/important ones.
+    Returns the first matching class (in config.yaml order), or None.
     """
-    # shunk031/MSCOCO (captions task) does not include object category annotations.
-    # We match classes by scanning caption text — the captions field contains
-    # enough semantic content to identify the dominant subject reliably.
     captions = _extract_captions(sample)
     if not captions:
         return None
 
     caption_text = " ".join(captions).lower()
     for cls in classes:
-        aliases = COCO_CLASS_ALIASES.get(cls, [cls])
+        aliases = CLASS_CAPTION_ALIASES.get(cls, [cls])
         if any(alias in caption_text for alias in aliases):
             return cls
 
@@ -302,16 +288,21 @@ def _match_sample_to_class(
 
 def _extract_captions(sample: dict) -> list[str]:
     """
-    Extract caption strings from a COCO sample.
+    Extract caption strings from a dataset sample.
 
-    HuggingFaceM4/COCO stores captions in different fields depending
-    on the dataset subset version. Try all known formats.
+    Active code path for current dataset (nlphuji/flickr30k):
+      → Format 0: sample["caption"] = ["str1", "str2", ...]
+
+    Formats 1–5 below are compatibility fallbacks for other dataset
+    variants (shunk031/MSCOCO, HuggingFaceM4/COCO). They are not
+    triggered by flickr30k but are retained so this function works
+    without modification if the dataset is swapped in config.yaml.
     """
-    # Format 0: nlphuji/flickr30k — sample["caption"] = ["str1", "str2", ...]
+    # Format 0: nlphuji/flickr30k — ACTIVE PATH
     caption_field = sample.get("caption", None)
     if isinstance(caption_field, list) and caption_field and isinstance(caption_field[0], str):
         return [c.strip() for c in caption_field if c.strip()]
-    # Format 1: shunk031/MSCOCO — sample["annotations"] = [{"caption": "...", ...}, ...]
+    # Format 1: shunk031/MSCOCO — INACTIVE for flickr30k, retained for compatibility
     annotations = sample.get("annotations", [])
     if isinstance(annotations, list) and annotations:
         extracted = [a.get("caption", "") for a in annotations if isinstance(a, dict)]
@@ -348,7 +339,7 @@ def _extract_captions(sample: dict) -> list[str]:
 
 def _build_record(sample: dict, label: str) -> dict | None:
     """
-    Build a clean record dict from a raw COCO sample.
+    Build a clean record dict from a raw dataset sample.
 
     Returns None if the sample is missing a required field (image or captions),
     which signals to the caller to skip this sample silently.
@@ -364,8 +355,8 @@ def _build_record(sample: dict, label: str) -> dict | None:
     if image is None:
         return None
 
-    # Extract image ID — shunk031/MSCOCO uses 'image_id' at top level
-    # Fallback to 'id' for other COCO dataset variants
+    # Extract image ID — try common HuggingFace dataset field names
+    # (image_id, img_id, id) with fallback to "unknown"
     image_id = str(sample.get("image_id", sample.get("img_id", sample.get("id", "unknown"))))
 
     # Extract captions

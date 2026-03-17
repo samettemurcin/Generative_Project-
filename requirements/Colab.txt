@@ -16,7 +16,6 @@
 #   transformers     5.0.0   ← MAJOR: Auto classes are now required
 #   accelerate       1.9.x
 #   peft             0.15.x
-#   datasets         3.x     ← MAJOR: our code pins <3.0.0 for API compat
 #   numpy            1.26.x or 2.x
 #
 # CODE COMPATIBILITY NOTE — transformers 5.0:
@@ -26,8 +25,6 @@
 #   (CLIPProcessor, GPT2Tokenizer) are deprecated in v5.
 #
 # datasets 3.x NOTE:
-#   Colab ships datasets 3.x which has breaking API changes vs 2.x.
-#   We force 2.x here for compatibility. If Colab's pre-installed 3.x
 #   takes precedence, a runtime restart after install is required.
 # =============================================================================
 

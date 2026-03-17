@@ -24,9 +24,12 @@ import logging.handlers
 import multiprocessing
 import os
 import platform
+import random
 import sys
 from pathlib import Path
 from typing import Any, Literal
+
+import numpy as np
 
 import torch
 import yaml
@@ -342,9 +345,6 @@ def set_seed(seed: int) -> None:
     Call once at pipeline startup before any data loading or model init.
     Covers: Python random, NumPy, PyTorch CPU, PyTorch CUDA.
     """
-    import random
-    import numpy as np
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

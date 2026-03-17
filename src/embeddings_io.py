@@ -175,16 +175,19 @@ def load_embeddings(
                 f"but 'ids' has {n}."
             )
 
-    # Embedding dimension check — CLIP ViT-B/32 produces 512-dim vectors
-    expected_dim = 512
-    for key in ("image_embeddings", "text_embeddings"):
-        actual_dim = result[key].shape[-1]
-        if actual_dim != expected_dim:
-            logger.warning(
-                "Embedding dim for '%s' is %d, expected %d. "
-                "This is OK if using a different CLIP variant.",
-                key, actual_dim, expected_dim,
-            )
+    # Verify image and text embeddings have matching dimensions.
+    # We do NOT enforce a specific dimension here because the dimension
+    # depends on the CLIP variant: ViT-B/32 → 512, ViT-L/14 → 768.
+    img_dim  = result["image_embeddings"].shape[-1]
+    text_dim = result["text_embeddings"].shape[-1]
+    if img_dim != text_dim:
+        logger.warning(
+            "Dimension mismatch: image_embeddings=%d, text_embeddings=%d. "
+            "Ensure both were produced by the same pipeline run.",
+            img_dim, text_dim,
+        )
+    else:
+        logger.info("Embedding dimension: %d (both image and text)", img_dim)
 
     logger.info(
         "Loaded embeddings | path=%s | N=%d | keys=%s",

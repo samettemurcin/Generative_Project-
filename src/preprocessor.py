@@ -33,13 +33,11 @@ import logging
 from typing import Any
 
 import torch
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from transformers import AutoProcessor, AutoTokenizer
 
 from src.utils import (
-    get_per_class_target,
     get_repair_logger,
-    load_config,
     log_repair_event,
 )
 
@@ -74,7 +72,7 @@ class Preprocessor:
         self.clip_processor = AutoProcessor.from_pretrained(model_name_clip)
 
         logger.info("Loading AutoTokenizer (GPT-2) from: %s", model_name_gpt2)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name_gpt2)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name_gpt2, clean_up_tokenization_spaces=True)
 
         # GPT-2 has no native pad token — set to eos_token
         # This is the standard practice for GPT-2 inference/extraction.
@@ -206,16 +204,20 @@ class Preprocessor:
                 continue
 
             # --- Validate token shape ---
-            assert token_ids.shape == torch.Size([self.max_token_length]), (
-                f"Token shape mismatch: got {token_ids.shape}, "
-                f"expected [{self.max_token_length}]"
-            )
+            if token_ids.shape != torch.Size([self.max_token_length]):
+                logger.warning(
+                    "Token shape mismatch for image_id=%s: got %s, expected [%d] — skipping",
+                    img_id, token_ids.shape, self.max_token_length,
+                )
+                n_skipped += 1
+                continue
 
             valid_samples.append({
                 "image_id":     img_id,
                 "pixel_values": pixel_values,   # [3, 224, 224] float32
                 "token_ids":    token_ids,       # [77] int64
-                "caption":      caption,
+                "caption":      caption,            # first caption — used for tokenisation
+                "all_captions": record["captions"], # ALL reference captions — required by M3 metrics
                 "label":        label,
             })
 
@@ -343,7 +345,7 @@ class Preprocessor:
 
         for repair_name in self.repair_order:
 
-            if repair_name == "mode_convert" and "mode_" in failure_reason:
+            if repair_name == "mode_convert" and failure_reason.startswith("mode_"):
                 try:
                     repaired  = repaired.convert("RGB")
                     last_name = "mode_convert"
@@ -364,7 +366,7 @@ class Preprocessor:
                 try:
                     repaired  = repaired.resize(
                         (max(self.min_w, repaired.width), max(self.min_h, repaired.height)),
-                        Image.BICUBIC,
+                        Image.Resampling.BICUBIC,
                     )
                     last_name = "upscale"
                     logger.debug("image_id=%s: upscale applied to %s", image_id, repaired.size)
@@ -435,7 +437,7 @@ class PreprocessResult:
     Attributes:
         valid_samples  : list of processed record dicts, each containing:
                            image_id, pixel_values [3,224,224], token_ids [77],
-                           caption, label
+                           caption, all_captions, label
         total_repaired : number of images that required repair
         total_skipped  : number of images that were discarded entirely
         total_input    : number of raw candidates that were input

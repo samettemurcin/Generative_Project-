@@ -33,14 +33,13 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoModel
+from transformers import CLIPModel, GPT2Model
 
 from src.data_loader import build_candidate_pool, flatten_candidates, get_dataloader_splits
 from src.embeddings_io import EmbeddingCheckpointer, load_embeddings
 from src.preprocessor import Preprocessor
 from src.utils import (
     get_device,
-    get_num_workers,
     get_output_path,
     get_pipeline_mode,
     load_config,
@@ -123,7 +122,7 @@ def _run_extract(
 ) -> dict[str, Any]:
     """
     M1 extraction pipeline:
-      1. Build candidate pool from COCO
+      1. Build candidate pool from the configured dataset
       2. Select and preprocess samples
       3. Run CLIP image encoder + GPT-2 text encoder in batches
       4. Save embeddings to .npz with checkpointing
@@ -141,9 +140,18 @@ def _run_extract(
     # ── Step 2: Preprocessing ─────────────────────────────────────────────
     logger.info("Step 2/4: Preprocessing candidates")
     preprocessor = Preprocessor(config)
-    result       = preprocessor.process_candidates(
-        flat_candidates = flat,
-        reserve_pool    = buckets,   # Pass full pool as reserve for retry
+    selected_ids = {
+        cls: {s["image_id"] for s in samples}
+        for cls, samples in selected.items()
+    }
+    reserve_pool = {
+        cls: [s for s in buckets[cls] if s["image_id"] not in selected_ids[cls]]
+        for cls in buckets
+    }
+
+    result = preprocessor.process_candidates(
+        flat_candidates=flat,
+        reserve_pool=reserve_pool,  # ← true holdout candidates only
     )
 
     logger.info(result.summary())
@@ -161,18 +169,21 @@ def _run_extract(
     clip_model_name = config["models"]["clip"]
     gpt2_model_name = config["models"]["gpt2"]
 
-    # AutoModel resolves the correct architecture from the model card config.
-    # This is the transformers 5.0 recommended pattern and works on both
-    # 4.44 (local) and 5.0 (Colab) without code changes.
     logger.info("Loading CLIP model: %s", clip_model_name)
-    clip_model = AutoModel.from_pretrained(clip_model_name).to(device)
+    clip_model = CLIPModel.from_pretrained(clip_model_name).to(device)
     clip_model.eval()
 
     logger.info("Loading GPT-2 model: %s", gpt2_model_name)
-    gpt2_model = AutoModel.from_pretrained(gpt2_model_name).to(device)
+    gpt2_model = GPT2Model.from_pretrained(gpt2_model_name).to(device)
     gpt2_model.eval()
 
     logger.info("Models loaded and set to eval mode")
+
+    # Dimension alignment: GPT-2 hidden size (768) ≠ CLIP projection dim (512).
+    # A frozen linear layer maps GPT-2’s mean-pooled output to CLIP’s embedding
+    # space so both image and text embeddings share a common 512-d space in M1.
+    # In M2, this projection is replaced by the prefix conditioning layer,
+    # which is trained (via LoRA) rather than frozen.
     text_projection = None
     if gpt2_model.config.n_embd != clip_model.config.projection_dim:
         text_projection = torch.nn.Linear(gpt2_model.config.n_embd, clip_model.config.projection_dim, bias=False).to(
@@ -268,11 +279,26 @@ def _normalize(embeddings: torch.Tensor) -> torch.Tensor:
     return torch.nn.functional.normalize(embeddings, p=2, dim=-1)
 
 
-def _pool_and_project(hidden_states, projection=None):
-    pooled = hidden_states.mean(dim=1)
+def _pool_and_project(
+    hidden_states: torch.Tensor,
+    projection: torch.nn.Linear | None = None,
+) -> torch.Tensor:
+    """
+    Mean-pool the last hidden state across the sequence dimension,
+    then optionally project to a target dimension and L2-normalise.
+
+    Args:
+        hidden_states: [B, seq_len, hidden_dim] — GPT-2 last_hidden_state
+        projection:    Optional Linear layer mapping hidden_dim → target_dim.
+                       If None, the pooled vector is normalised as-is.
+
+    Returns:
+        [B, target_dim] L2-normalised embedding tensor.
+    """
+    pooled = hidden_states.mean(dim=1)      # [B, hidden_dim]
     if projection is None:
         return _normalize(pooled)
-    return _normalize(projection(pooled))
+    return _normalize(projection(pooled))   # [B, target_dim]
 
 
 def _log_class_distribution(data: dict) -> None:
