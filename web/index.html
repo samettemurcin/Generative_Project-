@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CLIP + GPT-2 | Image Captioning Research</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,600;1,6..72,700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --surface: #fbf9f6;
+    --surface-container-lowest: #ffffff;
+    --surface-container-low: #f5f3f0;
+    --surface-container: #efeeeb;
+    --surface-container-high: #eae8e5;
+    --surface-container-highest: #e4e2df;
+    --primary: #99420d;
+    --primary-container: #b95925;
+    --on-primary: #ffffff;
+    --on-primary-container: #fffbff;
+    --primary-fixed: #ffdbcc;
+    --primary-fixed-dim: #ffb693;
+    --secondary: #376847;
+    --secondary-container: #b6edc2;
+    --on-secondary-container: #3b6d4b;
+    --tertiary: #625b55;
+    --on-background: #1b1c1a;
+    --on-surface: #1b1c1a;
+    --on-surface-variant: #56433a;
+    --outline: #897268;
+    --outline-variant: #dcc1b5;
+    --error: #ba1a1a;
+    --error-container: #ffdad6;
+    --warm-panel: #fff4ed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: var(--surface); color: var(--on-background); -webkit-font-smoothing: antialiased; line-height: 1.6; }
+
+  .t-display   { font-family: 'Newsreader', serif; font-size: clamp(3rem, 6vw, 4.5rem); line-height: 1.08; font-weight: 400; font-style: italic; letter-spacing: -0.02em; }
+  .t-headline  { font-family: 'Newsreader', serif; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; font-weight: 400; font-style: italic; }
+  .t-title     { font-family: 'Newsreader', serif; font-size: 1.5rem; line-height: 1.3; font-weight: 600; font-style: italic; }
+  .t-body-lg   { font-family: 'Inter', sans-serif; font-size: 1.15rem; line-height: 1.65; font-weight: 300; }
+  .t-label     { font-family: 'Inter', sans-serif; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .t-label-sm  { font-family: 'Inter', sans-serif; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+
+  .container { max-width: 1380px; margin: 0 auto; padding-left: clamp(2rem, 4vw, 5.5rem); padding-right: clamp(2rem, 4vw, 5.5rem); }
+
+  /* Header */
+  .site-header { position: sticky; top: 0; z-index: 100; background: var(--surface); }
+  .header-inner { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 0; }
+  .header-logo { font-family: 'Newsreader', serif; font-size: 1.4rem; font-weight: 700; color: var(--on-background); }
+  .header-nav { display: flex; gap: 2.5rem; align-items: center; }
+  .header-nav a { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--tertiary); text-decoration: none; }
+  .header-nav a:hover { color: var(--on-background); }
+  .header-nav a.active { color: var(--primary); }
+  .header-actions { display: flex; gap: 0.75rem; }
+  .btn-primary { background: var(--primary); color: var(--on-primary); padding: 0.6rem 1.5rem; border-radius: 0.25rem; border: none; font-size: 0.8rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-secondary { background: transparent; color: var(--primary); padding: 0.6rem 1.5rem; border-radius: 0.25rem; border: 1px solid rgba(220,193,181,0.2); font-size: 0.8rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-secondary:hover { background: var(--surface-container-low); }
+  .header-divider { height: 1px; background: var(--surface-container); }
+
+  /* Hero */
+  .hero { padding: 6rem 0 5rem; display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 4rem; align-items: center; }
+  .hero-text { padding-right: 2rem; }
+  .hero-text h1 { color: var(--on-background); margin-bottom: 1.5rem; }
+  .hero-text p { color: var(--tertiary); max-width: 540px; margin-bottom: 2rem; }
+  .hero-ctas { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+  .hero-cta-demo { color: var(--primary); font-weight: 600; font-size: 1rem; text-decoration: none; display: flex; align-items: center; gap: 0.4rem; }
+
+  /* Hero showcase card — replaces static screenshot */
+  .hero-showcase {
+    background: var(--surface-container-low);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 4px 40px rgba(27,28,26,0.04);
+  }
+  .hero-showcase-img {
+    width: 100%;
+    aspect-ratio: 16/10;
+    background: var(--surface-container-high);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .hero-showcase-img img { width: 100%; height: 100%; object-fit: cover; }
+  .hero-showcase-img svg { width: 3rem; height: 3rem; stroke: var(--outline); fill: none; stroke-width: 1.5; }
+  .hero-showcase-body { padding: 1.25rem 1.5rem; }
+  .hero-showcase-label { color: var(--primary); margin-bottom: 0.5rem; }
+  .hero-showcase-caption {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: var(--on-surface);
+  }
+  .hero-showcase-meta {
+    display: flex;
+    gap: 1.25rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .hero-showcase-chip {
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.3rem 0.7rem;
+    border-radius: 9999px;
+    background: var(--secondary-container);
+    color: var(--on-secondary-container);
+  }
+
+  /* Pipeline */
+  .pipeline-section { background: var(--warm-panel); padding: 5rem 0; }
+  .pipeline-steps { display: flex; align-items: flex-start; justify-content: center; }
+  .pipeline-step { flex: 1; max-width: 260px; text-align: center; padding: 0 1.5rem; }
+  .pipeline-step-num { font-family: 'Newsreader', serif; font-style: italic; font-size: 2.5rem; font-weight: 700; color: var(--primary); margin-bottom: 0.75rem; }
+  .pipeline-step-icon { width: 3.5rem; height: 3.5rem; border-radius: 50%; background: var(--surface-container-lowest); display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; }
+  .pipeline-step-icon svg { width: 1.5rem; height: 1.5rem; stroke: var(--primary); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .pipeline-step h3 { font-weight: 600; font-size: 1rem; margin-bottom: 0.4rem; color: var(--on-background); }
+  .pipeline-step p { font-size: 0.85rem; color: var(--tertiary); line-height: 1.5; }
+  .pipeline-arrow { display: flex; align-items: center; padding-top: 3.5rem; color: var(--primary-fixed-dim); font-size: 1.5rem; flex-shrink: 0; }
+
+  /* Demo */
+  .demo-section { padding: 6rem 0; }
+  .demo-header { margin-bottom: 3rem; }
+  .demo-header h2 { color: var(--primary); margin-bottom: 0.5rem; }
+  .demo-header p { color: var(--tertiary); max-width: 540px; }
+  .demo-layout { display: grid; grid-template-columns: 1fr 360px; gap: 2rem; }
+  .demo-iframe-wrap { background: var(--surface-container-lowest); border-radius: 0.75rem; overflow: hidden; box-shadow: 0 0 0 1px rgba(220,193,181,0.15); }
+  .demo-iframe-wrap iframe { width: 100%; height: 720px; border: none; display: block; }
+  .demo-iframe-fallback { width: 100%; height: 720px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--surface-container-low); gap: 0.75rem; padding: 2rem; text-align: center; }
+  .demo-iframe-fallback svg { width: 3rem; height: 3rem; stroke: var(--outline); fill: none; stroke-width: 1.5; }
+  .demo-iframe-fallback .hint { font-size: 0.85rem; color: var(--on-surface-variant); font-weight: 500; }
+  .demo-iframe-fallback .sub { font-size: 0.78rem; color: var(--tertiary); }
+  .demo-iframe-fallback code { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: var(--surface-container); padding: 0.5rem 1rem; border-radius: 0.25rem; color: var(--primary); margin-top: 0.75rem; }
+  .demo-note { margin-top: 0.75rem; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tertiary); font-weight: 500; }
+
+  /* Eval panel */
+  .eval-panel { position: sticky; top: 6rem; align-self: start; background: var(--warm-panel); border-radius: 0.75rem; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; min-height: 720px; }
+  .eval-panel h3 { color: var(--on-background); }
+  .eval-caption-label { color: var(--primary); margin-bottom: 0.4rem; }
+  .eval-caption-box { background: var(--surface-container-lowest); padding: 1rem 1.25rem; border-radius: 0.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; line-height: 1.65; color: var(--on-surface); min-height: 90px; box-shadow: 0 0 0 1px rgba(220,193,181,0.15); }
+  .eval-metrics { display: flex; flex-direction: column; gap: 0; }
+  .eval-metric-row { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; }
+  .eval-metric-row + .eval-metric-row { box-shadow: 0 -1px 0 0 rgba(55,104,71,0.08); }
+  .eval-metric-label { color: var(--tertiary); }
+  .eval-metric-value { font-size: 1.05rem; font-weight: 700; color: var(--secondary); }
+
+  /* Strategy switcher buttons */
+  .strategy-divider { height: 1px; background: var(--surface-container); margin: 0.25rem 0; }
+  .strategy-section h4 { color: var(--on-surface-variant); margin-bottom: 0.6rem; }
+  .strategy-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .strategy-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.45rem 0.85rem;
+    border-radius: 0.25rem;
+    border: none;
+    cursor: pointer;
+    background: var(--surface-container-lowest);
+    color: var(--tertiary);
+    box-shadow: 0 0 0 1px rgba(220,193,181,0.15);
+    position: relative;
+  }
+  .strategy-btn:hover { color: var(--on-background); background: var(--surface-container-low); }
+  .strategy-btn.active {
+    background: var(--primary);
+    color: var(--on-primary);
+    box-shadow: none;
+  }
+  .strategy-btn .best-dot {
+    display: none;
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--secondary);
+  }
+  .strategy-btn.is-best .best-dot { display: block; }
+  .strategy-best-note {
+    font-size: 0.65rem;
+    color: var(--secondary);
+    font-style: italic;
+    margin-top: 0.5rem;
+  }
+  .eval-note { font-size: 0.7rem; color: var(--tertiary); font-style: italic; margin-top: auto; }
+
+  /* Results */
+  .results-section { background: var(--surface-container-lowest); padding: 6rem 0; }
+  .results-section h2 { color: var(--on-background); margin-bottom: 3rem; }
+  .results-table { width: 100%; border-collapse: collapse; }
+  .results-table thead th { padding: 1.25rem 1rem; text-align: left; color: var(--tertiary); font-weight: 600; box-shadow: 0 1px 0 0 var(--surface-container-highest); }
+  .results-table thead th.num { text-align: right; }
+  .results-table tbody td { padding: 1.25rem 1rem; color: var(--on-surface); }
+  .results-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .results-table tbody td.best { color: var(--secondary); font-weight: 700; }
+  .results-table tbody td.meta { color: var(--tertiary); }
+  .results-table tbody tr:hover { background: var(--surface-container-low); }
+  .results-table tbody tr.highlighted { background: rgba(185,89,37,0.04); }
+  .results-table tbody tr.highlighted td:first-child { box-shadow: inset 4px 0 0 0 var(--primary); }
+  .results-table-caption { margin-top: 1.5rem; font-size: 0.8rem; color: var(--tertiary); font-style: italic; }
+
+  /* Insights */
+  .insights-section { padding: 4rem 0 6rem; background: var(--surface-container-lowest); }
+  .insights-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+  .insight-card { background: var(--warm-panel); padding: 2rem 2rem 2rem 2.25rem; border-radius: 0.25rem; position: relative; overflow: hidden; }
+  .insight-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--primary); }
+  .insight-card .finding { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.05rem; line-height: 1.4; color: var(--on-background); margin-bottom: 0.6rem; }
+  .insight-card .explanation { font-size: 0.85rem; color: var(--tertiary); line-height: 1.55; }
+
+  /* Failures */
+  .failures-section { background: var(--warm-panel); padding: 6rem 0; }
+  .failures-header { margin-bottom: 3rem; }
+  .failures-header h2 { color: var(--on-background); margin-bottom: 0.5rem; }
+  .failures-header p { color: var(--tertiary); font-style: italic; font-size: 0.95rem; }
+  .failures-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+  .failure-card { background: var(--surface-container-lowest); border-radius: 0.5rem; overflow: hidden; box-shadow: 0 4px 40px rgba(27,28,26,0.04); }
+  .failure-card-img { width: 100%; aspect-ratio: 4/3; background: var(--surface-container-high); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .failure-card-img img { width: 100%; height: 100%; object-fit: cover; }
+  .failure-card-img svg { width: 2.5rem; height: 2.5rem; stroke: var(--outline); fill: none; stroke-width: 1.5; }
+  .failure-card-body { padding: 1.5rem; }
+  .failure-caption-row { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.75rem; }
+  .failure-icon { flex-shrink: 0; width: 1.1rem; height: 1.1rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: 0.15rem; }
+  .failure-icon.bad { background: var(--error-container); }
+  .failure-icon.good { background: var(--secondary-container); }
+  .failure-icon svg { width: 0.65rem; height: 0.65rem; }
+  .failure-icon.bad svg { stroke: var(--error); fill: none; stroke-width: 2.5; }
+  .failure-icon.good svg { stroke: var(--secondary); fill: none; stroke-width: 2.5; }
+  .failure-caption-text { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.5; color: var(--on-surface); }
+  .failure-reason { font-size: 0.78rem; color: var(--tertiary); font-style: italic; line-height: 1.45; margin-top: 0.25rem; padding-top: 0.75rem; box-shadow: 0 -1px 0 0 var(--surface-container); }
+
+  /* Architecture */
+  .arch-section { padding: 6rem 0; }
+  .arch-section h2 { margin-bottom: 3rem; }
+  .arch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+  .arch-card { background: var(--warm-panel); padding: 2rem; border-radius: 0.25rem; position: relative; overflow: hidden; }
+  .arch-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--primary); }
+  .arch-card code { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 0.95rem; color: var(--primary); display: block; margin-bottom: 0.6rem; padding-left: 0.25rem; }
+  .arch-card p { font-size: 0.85rem; color: var(--tertiary); line-height: 1.55; padding-left: 0.25rem; }
+
+  /* Team */
+  .team-section { background: var(--surface-container-low); padding: 6rem 0; }
+  .team-layout { display: grid; grid-template-columns: 1fr 2fr; gap: 4rem; }
+  .tech-badges { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.5rem; }
+  .tech-badge { background: var(--secondary-container); color: var(--on-secondary-container); padding: 0.45rem 1rem; border-radius: 9999px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+  .team-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; align-items: start; }
+  .team-member { text-align: center; }
+  .team-avatar { width: 5.5rem; height: 5.5rem; border-radius: 50%; background: var(--surface-container-highest); margin: 0 auto 0.75rem; overflow: hidden; }
+  .team-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .team-member h4 { font-weight: 600; font-size: 0.9rem; color: var(--on-background); }
+
+  /* Footer */
+  .site-footer { background: var(--surface-container-low); padding: 2.5rem 0; }
+  .footer-inner { display: flex; justify-content: space-between; align-items: center; }
+  .footer-inner span, .footer-inner a { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tertiary); text-decoration: none; font-weight: 500; }
+  .footer-inner a:hover { color: var(--primary); }
+  .footer-links { display: flex; gap: 2rem; }
+
+  /* Responsive */
+  @media (max-width: 1024px) {
+    .hero { grid-template-columns: 1fr; }
+    .demo-layout { grid-template-columns: 1fr; }
+    .eval-panel { position: static; min-height: auto; }
+    .team-layout { grid-template-columns: 1fr; }
+    .insights-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 768px) {
+    .pipeline-steps { flex-direction: column; align-items: center; gap: 1rem; }
+    .pipeline-arrow { display: none; }
+    .arch-grid { grid-template-columns: 1fr; }
+    .team-grid { grid-template-columns: repeat(2, 1fr); }
+    .header-nav { display: none; }
+    .footer-inner { flex-direction: column; gap: 1rem; text-align: center; }
+    .footer-links { flex-wrap: wrap; justify-content: center; }
+  }
+</style>
+
+<script>
+/* ================================================================
+   ██████  ██████  ███    ██ ███████ ██  ██████
+  ██      ██    ██ ████   ██ ██      ██ ██
+  ██      ██    ██ ██ ██  ██ █████   ██ ██   ███
+  ██      ██    ██ ██  ██ ██ ██      ██ ██    ██
+   ██████  ██████  ██   ████ ██      ██  ██████
+
+  YOUR SINGLE SOURCE OF TRUTH
+  ────────────────────────────────────────────────
+  Update the values below with your real data.
+  The entire page renders from this object.
+  No need to touch ANY HTML below this block.
+  ================================================================ */
+
+const CONFIG = {
+
+  // ─── Project metadata ─────────────────────────────────────────
+  project: {
+    title:    "Teaching Machines to See and Speak",
+    subtitle: "An AI system that looks at any image and generates a natural language caption — built with CLIP and GPT-2.",
+    github:   "https://github.com/Scofe-C/Generative_Project_1",
+    paper:    "#",
+    group:    "Group 11",
+    course:   "IE 7615 · Deep Learning for AI · 2026",
+    school:   "Northeastern University",
+  },
+
+  // ─── Hero showcase ────────────────────────────────────────────
+  // This replaces the old screenshot placeholder.
+  // Shows a real example image + generated caption in the hero.
+  // Set `image` to a path/URL once you have a good example.
+  hero: {
+    image:   null,   // ← e.g. "images/hero_example.jpg" or a URL
+    caption: "A serene mountain lake reflecting the clear blue sky with a pine forest in the background.",
+    badges:  ["CLIP ViT-B/32", "GPT-2", "Beam k=5"],
+  },
+
+  // ─── Demo sidebar ─────────────────────────────────────────────
+  // Each strategy now has its OWN metrics.
+  // The switcher updates caption + all metric values on click.
+  // Best strategy is auto-detected by highest CIDEr score.
+  demo: {
+    strategies: [
+      {
+        strategy: "Greedy",
+        caption:  "A mountain lake with trees and a blue sky.",
+        metrics:  { "BLEU-4": 0.087, "CIDEr": 0.482, "METEOR": 0.195, "CLIP Sim": 0.78 },
+      },
+      {
+        strategy: "Beam k=5",
+        caption:  "A serene mountain lake reflecting the clear blue sky with pine forest.",
+        metrics:  { "BLEU-4": 0.142, "CIDEr": 0.718, "METEOR": 0.267, "CLIP Sim": 0.91 },
+      },
+      {
+        strategy: "Nucleus p=0.9",
+        caption:  "Gentle ripples on a mountain lake mirror the sky above towering pines.",
+        metrics:  { "BLEU-4": 0.108, "CIDEr": 0.593, "METEOR": 0.251, "CLIP Sim": 0.85 },
+      },
+      // ← add more strategies freely — buttons auto-generate
+    ],
+
+    // Which metric determines "best strategy"? (auto-highlighted with green dot)
+    bestMetric: "CIDEr",
+
+    streamlitUrl: "http://localhost:8501?embed=true",
+    iframeLive: false,
+  },
+
+  // ─── Experiment results table ─────────────────────────────────
+  // Best-in-column is auto-detected. Set highlight: true to call out a row.
+  // Add as many rows as you want — the table handles any count.
+  experiments: [
+    { run: "#001", tuning: "Frozen",   injection: "Prefix", decoding: "Greedy",        bleu4: 0.087, cider: 0.482, meteor: 0.195, rougeL: 0.342 },
+    { run: "#002", tuning: "LoRA r=8", injection: "Prefix", decoding: "Greedy",        bleu4: 0.124, cider: 0.651, meteor: 0.238, rougeL: 0.412 },
+    { run: "#003", tuning: "LoRA r=8", injection: "Prefix", decoding: "Beam k=5",      bleu4: 0.142, cider: 0.718, meteor: 0.267, rougeL: 0.445, highlight: true },
+    { run: "#004", tuning: "LoRA r=8", injection: "Prefix", decoding: "Nucleus p=0.9", bleu4: 0.108, cider: 0.593, meteor: 0.251, rougeL: 0.398 },
+  ],
+  resultsCaption: "All experiments trained on MS COCO Captions — 1,000 samples, 10 classes. Best per column in green.",
+
+  // ─── Insight cards ("What Surprised Us") ──────────────────────
+  insights: [
+    {
+      finding:     "LoRA matched full fine-tuning at 2% of the trainable parameters.",
+      explanation: "Rank-8 LoRA adapters on attention layers achieved comparable CIDEr scores while using ~12 MB of additional VRAM — essentially negligible on consumer GPUs.",
+    },
+    {
+      finding:     "Beam search improved BLEU but made captions more generic.",
+      explanation: "Beam k=5 produced the highest quantitative scores, but nucleus sampling generated more diverse and semantically interesting descriptions. The metrics don't capture \"interestingness.\"",
+    },
+    {
+      finding:     "Scaling from 1k→5k samples moved CIDEr 40% but BLEU-4 only 8%.",
+      explanation: "BLEU's n-gram precision saturates faster than CIDEr's TF-IDF weighting. This suggests CIDEr is the more sensitive metric for captioning tasks at small scale.",
+    },
+  ],
+
+  // ─── Failure gallery ──────────────────────────────────────────
+  failures: [
+    { image: null, generated: "a man on a man on a man on a skateboard", truth: "A young man performing a trick on a skateboard", reason: "Token repetition loop — the model's attention collapses when prefix conditioning is weak." },
+    { image: null, generated: "A cat sitting on a red couch next to a lamp", truth: "A dog lying on a blue rug in a living room", reason: "Object hallucination — GPT-2's language prior overrides visual evidence from CLIP embeddings." },
+    { image: null, generated: "A group of people standing in a room", truth: "Chefs preparing sushi behind a counter at a busy restaurant", reason: "Semantic flattening — the model defaults to safe, generic descriptions when the scene is complex." },
+    { image: null, generated: "A bird flying over a boat on the water", truth: "A boat docked at a marina with seagulls perched on the railing", reason: "Spatial relationship error — CLIP embeddings lose positional information." },
+  ],
+
+  // ─── Architecture modules ─────────────────────────────────────
+  architecture: [
+    { name: "data_loader",  desc: "Streams COCO via HuggingFace datasets with stratified sampling across 10 semantic classes." },
+    { name: "preprocessor", desc: "Normalizes imagery to CLIP tensors (224×224) and handles GPT-2 sub-word tokenization." },
+    { name: "pipeline",     desc: "End-to-end inference engine with integrated evaluation metrics and configurable decoding." },
+    { name: "decoder",      desc: "PrefixProjection layer mapping CLIP 512-d embeddings to GPT-2's token space via learned projection." },
+    { name: "train",        desc: "Training loop with LoRA adapters, mixed-precision support, and checkpoint management." },
+  ],
+
+  techStack: ["PyTorch", "HuggingFace", "OpenAI CLIP", "GPT-2", "MS COCO", "Streamlit", "Python 3.11", "CUDA", "PEFT / LoRA"],
+
+  team: [
+    { name: "Zhengxin Chen",  avatar: "https://api.dicebear.com/9.x/fun-emoji/svg?seed=ZhengxinChen&eyes=glasses&mouth=lilSmile&backgroundColor=ffdfbf" },
+    { name: "Yi Liu",         avatar: "https://api.dicebear.com/9.x/fun-emoji/svg?seed=YiLiu&eyes=plain&mouth=lilSmile&backgroundColor=d1f0d1" },
+    { name: "Samet Temurcin", avatar: "https://api.dicebear.com/9.x/fun-emoji/svg?seed=SametTemurcin&eyes=glasses&mouth=lilSmile&backgroundColor=ffd6e0" },
+    { name: "Greta Wang",     avatar: "https://api.dicebear.com/9.x/fun-emoji/svg?seed=GretaWang&eyes=cute&mouth=lilSmile&backgroundColor=d0e8ff" },
+  ],
+};
+
+/* ================================================================
+   END OF CONFIG
+   ================================================================ */
+</script>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="site-header">
+  <div class="container">
+    <div class="header-inner">
+      <div class="header-logo">CLIP + GPT-2</div>
+      <nav class="header-nav">
+        <a href="#pipeline" class="active">Research</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#demo">Demo</a>
+        <a href="#results">Results</a>
+        <a href="#team">Team</a>
+      </nav>
+      <div class="header-actions" id="header-actions"></div>
+    </div>
+  </div>
+  <div class="header-divider"></div>
+</header>
+
+<main>
+
+<!-- HERO -->
+<section class="container">
+  <div class="hero">
+    <div class="hero-text">
+      <h1 class="t-display" id="hero-title"></h1>
+      <p class="t-body-lg" id="hero-subtitle"></p>
+      <div class="hero-ctas" id="hero-ctas"></div>
+    </div>
+    <div id="hero-visual"></div>
+  </div>
+</section>
+
+<!-- PIPELINE -->
+<section id="pipeline" class="pipeline-section">
+  <div class="container">
+    <div class="pipeline-steps">
+      <div class="pipeline-step">
+        <div class="pipeline-step-num">01</div>
+        <div class="pipeline-step-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+        <h3>Upload Image</h3>
+        <p>Input processing, normalization, and resize to 224×224</p>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="pipeline-step-num">02</div>
+        <div class="pipeline-step-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg></div>
+        <h3>CLIP Vision Encoder</h3>
+        <p>Extracts semantic visual features into a 512-d embedding</p>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step">
+        <div class="pipeline-step-num">03</div>
+        <div class="pipeline-step-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg></div>
+        <h3>GPT-2 Decoder</h3>
+        <p>Generates human-like captions conditioned on visual tokens</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEMO -->
+<section id="demo" class="demo-section">
+  <div class="container">
+    <div class="demo-header">
+      <h2 class="t-headline" style="color:var(--primary)">Try It Live</h2>
+      <p class="t-body-lg">Upload any image — the model generates a caption and scores it in real time.</p>
+    </div>
+    <div class="demo-layout">
+      <div>
+        <div class="demo-iframe-wrap" id="demo-frame-container"></div>
+        <p class="demo-note" id="demo-note"></p>
+      </div>
+      <aside class="eval-panel">
+        <h3 class="t-title">Results &amp; Evaluation</h3>
+
+        <!-- Strategy switcher -->
+        <div class="strategy-section">
+          <h4 class="t-label">Decoding Strategy</h4>
+          <div class="strategy-btns" id="strategy-btns"></div>
+          <div class="strategy-best-note" id="strategy-best-note"></div>
+        </div>
+
+        <!-- Caption (updates on strategy click) -->
+        <div>
+          <div class="t-label eval-caption-label">Generated Caption</div>
+          <div class="eval-caption-box" id="eval-caption"></div>
+        </div>
+
+        <!-- Metrics (update on strategy click) -->
+        <div class="eval-metrics" id="eval-metrics"></div>
+
+        <p class="eval-note">Same image, different generation strategies. Metrics computed against COCO validation references.</p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section id="results" class="results-section">
+  <div class="container">
+    <h2 class="t-headline">Experiment Results</h2>
+    <div style="overflow-x:auto;">
+      <table class="results-table">
+        <thead>
+          <tr>
+            <th class="t-label-sm">Run</th>
+            <th class="t-label-sm">Fine-tuning</th>
+            <th class="t-label-sm">Injection</th>
+            <th class="t-label-sm">Decoding</th>
+            <th class="t-label-sm num">BLEU-4</th>
+            <th class="t-label-sm num">CIDEr</th>
+            <th class="t-label-sm num">METEOR</th>
+            <th class="t-label-sm num">ROUGE-L</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+    <p class="results-table-caption" id="results-caption"></p>
+  </div>
+</section>
+
+<!-- INSIGHTS -->
+<section class="insights-section">
+  <div class="container">
+    <div class="insights-grid" id="insights-grid"></div>
+  </div>
+</section>
+
+<!-- FAILURE GALLERY -->
+<section class="failures-section">
+  <div class="container">
+    <div class="failures-header">
+      <h2 class="t-headline">Where the Model Struggles</h2>
+      <p>Understanding failure modes matters more than cherry-picking successes.</p>
+    </div>
+    <div class="failures-grid" id="failures-grid"></div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture" class="arch-section">
+  <div class="container">
+    <h2 class="t-headline">Architecture</h2>
+    <div class="arch-grid" id="arch-grid"></div>
+  </div>
+</section>
+
+<!-- TEAM -->
+<section id="team" class="team-section">
+  <div class="container">
+    <div class="team-layout">
+      <div>
+        <h2 class="t-headline">Technology Stack</h2>
+        <div class="tech-badges" id="tech-badges"></div>
+      </div>
+      <div>
+        <h2 class="t-headline" id="group-name" style="margin-bottom:2rem;"></h2>
+        <div class="team-grid" id="team-grid"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-inner">
+      <span id="footer-group"></span>
+      <span id="footer-course"></span>
+      <div class="footer-links">
+        <a href="#" id="footer-github">GitHub</a>
+        <a href="#">Methodology</a>
+        <a href="#">Open Source License</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ===== RENDERER ===== -->
+<script>
+(function render() {
+  const C = CONFIG;
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+
+  // ── Header
+  $('#header-actions').innerHTML =
+    `<a href="${esc(C.project.paper)}" class="btn-primary">Paper</a>` +
+    `<a href="${esc(C.project.github)}" class="btn-secondary">Code</a>`;
+
+  // ── Hero
+  $('#hero-title').textContent = C.project.title;
+  $('#hero-subtitle').textContent = C.project.subtitle;
+  $('#hero-ctas').innerHTML =
+    `<a href="${esc(C.project.github)}" class="btn-primary" style="padding:0.85rem 2rem;font-size:1rem;">View on GitHub</a>` +
+    `<a href="#demo" class="hero-cta-demo">Try the Demo <span class="arrow">↓</span></a>`;
+
+  // Hero showcase card
+  const heroImgSvg = '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+  $('#hero-visual').innerHTML = `
+    <div class="hero-showcase">
+      <div class="hero-showcase-img">
+        ${C.hero.image ? '<img src="'+esc(C.hero.image)+'" alt="Example captioned image"/>' : heroImgSvg}
+      </div>
+      <div class="hero-showcase-body">
+        <div class="t-label-sm hero-showcase-label">Generated Caption</div>
+        <div class="hero-showcase-caption">${esc(C.hero.caption)}</div>
+        <div class="hero-showcase-meta">
+          ${C.hero.badges.map(b => '<span class="hero-showcase-chip">'+esc(b)+'</span>').join('')}
+        </div>
+      </div>
+    </div>`;
+
+  // ── Demo frame
+  if (C.demo.iframeLive) {
+    $('#demo-frame-container').innerHTML =
+      `<iframe src="${esc(C.demo.streamlitUrl)}" title="Image Captioning Demo"></iframe>`;
+  } else {
+    $('#demo-frame-container').innerHTML = `
+      <div class="demo-iframe-fallback">
+        <svg viewBox="0 0 24 24" style="width:3rem;height:3rem;stroke:var(--outline);fill:none;stroke-width:1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span class="hint">Start the model server to activate</span>
+        <span class="sub">The demo loads automatically when Streamlit is running</span>
+        <code>streamlit run streamlit_app.py</code>
+      </div>`;
+  }
+  $('#demo-note').textContent = 'Requires model server running locally · ' + C.demo.streamlitUrl.replace('http://','').replace('?embed=true','');
+
+  // ── Strategy switcher (interactive)
+  const strats = C.demo.strategies;
+  const bestMetricKey = C.demo.bestMetric;
+
+  // Find which strategy has the best score for the chosen metric
+  let bestIdx = 0;
+  let bestVal = -Infinity;
+  strats.forEach((s, i) => {
+    const v = s.metrics[bestMetricKey] || 0;
+    if (v > bestVal) { bestVal = v; bestIdx = i; }
+  });
+
+  // State: currently selected strategy
+  let activeIdx = bestIdx; // default to best
+
+  function renderStrategy(idx) {
+    activeIdx = idx;
+    const s = strats[idx];
+
+    // Update buttons
+    $$('.strategy-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', i === idx);
+    });
+
+    // Update caption
+    $('#eval-caption').textContent = s.caption;
+
+    // Update metrics
+    $('#eval-metrics').innerHTML = Object.entries(s.metrics).map(([k,v]) => `
+      <div class="eval-metric-row">
+        <span class="t-label-sm eval-metric-label">${esc(k)}</span>
+        <span class="eval-metric-value">${v.toFixed(3)}</span>
+      </div>`).join('');
+  }
+
+  // Build buttons
+  $('#strategy-btns').innerHTML = strats.map((s, i) =>
+    `<button class="strategy-btn${i === bestIdx ? ' is-best' : ''}" data-idx="${i}">` +
+    `${esc(s.strategy)}<span class="best-dot"></span></button>`
+  ).join('');
+
+  // Best note
+  $('#strategy-best-note').innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--secondary);margin-right:4px;vertical-align:middle;"></span> = best ${esc(bestMetricKey)} score`;
+
+  // Wire click events
+  $$('.strategy-btn').forEach(btn => {
+    btn.addEventListener('click', () => renderStrategy(parseInt(btn.dataset.idx)));
+  });
+
+  // Initial render
+  renderStrategy(activeIdx);
+
+  // ── Results table
+  const mk = ['bleu4','cider','meteor','rougeL'];
+  const bests = {};
+  mk.forEach(k => { bests[k] = Math.max(...C.experiments.map(e => e[k])); });
+
+  $('#results-tbody').innerHTML = C.experiments.map(e => `
+    <tr class="${e.highlight ? 'highlighted' : ''}">
+      <td>${esc(e.run)}</td>
+      <td class="meta">${esc(e.tuning)}</td>
+      <td class="meta">${esc(e.injection)}</td>
+      <td class="meta">${esc(e.decoding)}</td>
+      <td class="num${e.bleu4===bests.bleu4?' best':''}">${e.bleu4.toFixed(3)}</td>
+      <td class="num${e.cider===bests.cider?' best':''}">${e.cider.toFixed(3)}</td>
+      <td class="num${e.meteor===bests.meteor?' best':''}">${e.meteor.toFixed(3)}</td>
+      <td class="num${e.rougeL===bests.rougeL?' best':''}">${e.rougeL.toFixed(3)}</td>
+    </tr>`).join('');
+  $('#results-caption').textContent = C.resultsCaption;
+
+  // ── Insights
+  $('#insights-grid').innerHTML = C.insights.map(ins => `
+    <div class="insight-card">
+      <div class="finding">${esc(ins.finding)}</div>
+      <div class="explanation">${esc(ins.explanation)}</div>
+    </div>`).join('');
+
+  // ── Failures
+  const imgPH = '<svg viewBox="0 0 24 24" style="width:2.5rem;height:2.5rem;stroke:var(--outline);fill:none;stroke-width:1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+  const xS = '<svg viewBox="0 0 10 10"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>';
+  const okS = '<svg viewBox="0 0 10 10"><polyline points="2 5.5 4 7.5 8 3"/></svg>';
+
+  $('#failures-grid').innerHTML = C.failures.map(f => `
+    <div class="failure-card">
+      <div class="failure-card-img">${f.image ? '<img src="'+esc(f.image)+'" alt="Failure"/>' : imgPH}</div>
+      <div class="failure-card-body">
+        <div class="failure-caption-row"><div class="failure-icon bad">${xS}</div><span class="failure-caption-text">${esc(f.generated)}</span></div>
+        <div class="failure-caption-row"><div class="failure-icon good">${okS}</div><span class="failure-caption-text">${esc(f.truth)}</span></div>
+        <div class="failure-reason">${esc(f.reason)}</div>
+      </div>
+    </div>`).join('');
+
+  // ── Architecture
+  $('#arch-grid').innerHTML = C.architecture.map(m => `
+    <div class="arch-card"><code>${esc(m.name)}</code><p>${esc(m.desc)}</p></div>`).join('');
+
+  // ── Tech badges
+  $('#tech-badges').innerHTML = C.techStack.map(t => `<span class="tech-badge">${esc(t)}</span>`).join('');
+
+  // ── Team
+  $('#group-name').textContent = C.project.group;
+  $('#team-grid').innerHTML = C.team.map(m => `
+    <div class="team-member">
+      <div class="team-avatar"><img src="${esc(m.avatar)}" alt="${esc(m.name)}"/></div>
+      <h4>${esc(m.name)}</h4>
+    </div>`).join('');
+
+  // ── Footer
+  $('#footer-group').textContent = C.project.group + ' — ' + C.project.school;
+  $('#footer-course').textContent = C.project.course;
+  $('#footer-github').href = C.project.github;
+
+})();
+</script>
+
+</body>
+</html>
