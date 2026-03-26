@@ -239,24 +239,35 @@ def build_dataset(
 
         logger.info("Preprocessing done: %d valid samples", result.total_valid)
 
-        # 3. Encode ALL images with CLIP once — this is the bottleneck
+        # 3. Encode ALL images with CLIP once — this is the bottleneck.
+        #    Process in batches of 32 to maximise GPU utilisation (~20x faster
+        #    than encoding one image at a time).
         logger.info("Loading CLIP encoder: %s", args.encoder)
         clip_model     = CLIPModel.from_pretrained(args.encoder).to(device).eval()
         clip_processor = CLIPProcessor.from_pretrained(args.encoder)
 
+        clip_batch_size = 32
+        all_valid       = result.valid_samples
         all_samples: list[dict] = []
+
         with torch.no_grad():
-            for sample in result.valid_samples:
-                pixel_values = sample["pixel_values"].unsqueeze(0).to(device)
-                emb = clip_model.get_image_features(pixel_values=pixel_values)
-                emb = emb / emb.norm(dim=-1, keepdim=True)
-                all_samples.append({
-                    "image_id"    : sample["image_id"],
-                    "clip_emb"    : emb.cpu().numpy().flatten().tolist(),
-                    "caption"     : sample["caption"],
-                    "all_captions": sample.get("all_captions", [sample["caption"]]),
-                    "label"       : sample["label"],
-                })
+            for batch_start in range(0, len(all_valid), clip_batch_size):
+                batch        = all_valid[batch_start : batch_start + clip_batch_size]
+                pixel_values = torch.stack(
+                    [s["pixel_values"] for s in batch]
+                ).to(device)                                         # [B, 3, H, W]
+                embs = clip_model.get_image_features(pixel_values=pixel_values)
+                embs = embs / embs.norm(dim=-1, keepdim=True)       # L2-normalise
+                embs_cpu = embs.cpu().numpy()                        # [B, clip_dim]
+
+                for i, sample in enumerate(batch):
+                    all_samples.append({
+                        "image_id"    : sample["image_id"],
+                        "clip_emb"    : embs_cpu[i].tolist(),
+                        "caption"     : sample["caption"],
+                        "all_captions": sample.get("all_captions", [sample["caption"]]),
+                        "label"       : sample["label"],
+                    })
 
         torch.save({"samples": all_samples}, cache_path)
         logger.info("Cached %d CLIP embeddings to %s", len(all_samples), cache_path)
@@ -452,6 +463,12 @@ def train_one_epoch(
     gpt2_model.train()
     prefix_proj.train()
 
+    # Build gradient clipping target list once — params don't change between steps.
+    all_trainable = (
+        list(prefix_proj.parameters()) +
+        [p for p in gpt2_model.parameters() if p.requires_grad]
+    )
+
     total_loss = 0.0
     n_batches  = 0
 
@@ -475,10 +492,6 @@ def train_one_epoch(
         loss.backward()
 
         # Gradient clipping — prevents exploding gradients in early training
-        all_trainable = (
-            list(prefix_proj.parameters()) +
-            [p for p in gpt2_model.parameters() if p.requires_grad]
-        )
         torch.nn.utils.clip_grad_norm_(all_trainable, max_norm=1.0)
 
         optimizer.step()
@@ -494,10 +507,6 @@ def train_one_epoch(
                 epoch, step, len(train_loader),
                 loss.item(), scheduler.get_last_lr()[0],
             )
-
-        # CUDA cache clear — prevents OOM on long runs
-        if device.type == "cuda" and step % 50 == 0:
-            torch.cuda.empty_cache()
 
     mean_loss = total_loss / max(n_batches, 1)
     logger.info("Epoch %d complete | mean_train_loss=%.4f", epoch, mean_loss)
@@ -625,7 +634,8 @@ def save_checkpoint(
         "epoch"       : epoch,
         "val_loss"    : val_loss,
         "prefix_proj" : prefix_proj.state_dict(),
-        # Only LoRA diff weights — None for frozen/prefix_tuning runs
+        # With PEFT, state_dict() returns only the LoRA adapter weights,
+        # not the full GPT-2 base model (~17MB vs ~500MB). None for frozen/prefix_tuning.
         "lora_adapter": gpt2_model.state_dict() if args.finetune == "lora" else None,
         "config"      : vars(args),
     }
@@ -686,11 +696,17 @@ def write_run_outputs(
     )
 
     # captions.jsonl — one JSON line per val image
+    # Instantiate RougeScorer once outside the loop (stemmer init is non-trivial).
+    from rouge_score import rouge_scorer as rouge_lib
+    _rouge_scorer = rouge_lib.RougeScorer(["rougeL"], use_stemmer=True)
+
     with open(run_dir / "captions.jsonl", "w", encoding="utf-8") as f:
         for img_id, gen_list in hypotheses.items():
             generated   = gen_list[0]
             ref_list    = references.get(img_id, [])
-            per_sample  = compute_single_sample_metrics(generated, ref_list or [""])
+            per_sample  = compute_single_sample_metrics(
+                generated, ref_list or [""], rouge_scorer=_rouge_scorer
+            )
             record = {
                 "image_id"  : img_id,
                 "generated" : generated,
@@ -793,7 +809,8 @@ def main() -> None:
             clip_model_eval, clip_proc_eval,
         )
 
-        val_loss = 1.0 - scores.get("bleu_4", 0.0)  # proxy val loss for checkpoint selection
+        # Invert BLEU-4 so that "best checkpoint" = lowest val_loss = highest BLEU-4.
+        val_loss = 1.0 - scores.get("bleu_4", 0.0)
 
         train_log.append({
             "epoch"     : epoch,

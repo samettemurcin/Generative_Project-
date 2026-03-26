@@ -84,9 +84,6 @@ def build_val_references_cache(
     scanned = 0
 
     for sample in dataset:
-        if len(records) >= n_samples:
-            break
-
         scanned += 1
         img_id   = str(sample.get("img_id", sample.get("image_id", sample.get("id", f"sample_{scanned}"))))
         captions = _extract_captions(sample)
@@ -95,6 +92,9 @@ def build_val_references_cache(
             continue
 
         records[img_id] = captions[:5]  # at most 5 reference captions per image
+
+        if len(records) >= n_samples:
+            break
 
     logger.info(
         "Cached %d val reference records (scanned %d samples)", len(records), scanned

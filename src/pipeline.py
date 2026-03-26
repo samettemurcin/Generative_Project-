@@ -5,8 +5,8 @@ Responsibilities:
   - Load config, initialize all modules
   - Route execution based on pipeline.mode (extract | generate | evaluate)
   - M1 (extract): run CLIP + GPT-2 forward pass, save embeddings
-  - M2 (generate): placeholder — implemented in decoder.py
-  - M3 (evaluate): placeholder — implemented in metrics.py
+  - M2 (generate): prefix-conditioned caption generation via decoder.py
+  - M3 (evaluate): BLEU/CIDEr/ROUGE-L/METEOR evaluation via metrics.py
   - Memory management: batch processing, CUDA cache clearing
   - Checkpointed saves via EmbeddingCheckpointer
 
@@ -22,8 +22,8 @@ Design decisions:
 
 Milestone compatibility:
   M1: extract mode — full implementation
-  M2: generate mode — imports decoder.py (not yet implemented)
-  M3: evaluate mode — imports metrics.py (not yet implemented)
+  M2: generate mode — implemented in decoder.py
+  M3: evaluate mode — implemented in metrics.py
 """
 
 from __future__ import annotations
@@ -85,28 +85,16 @@ def run(config_path: str | None = None) -> dict[str, Any]:
         return _run_extract(config, device)
 
     elif mode == "generate":
-        # M2 — not yet implemented
-        logger.info("Mode 'generate' selected — importing decoder module (M2)")
-        try:
-            from src.decoder import run_generation  # noqa: F401
-            return run_generation(config, device)
-        except ImportError:
-            raise NotImplementedError(
-                "decoder.py is not yet implemented. "
-                "Set pipeline.mode = 'extract' in config.yaml for M1."
-            )
+        # M2 — batch caption generation using a trained prefix-conditioned GPT-2
+        logger.info("Mode 'generate' selected — running decoder module (M2)")
+        from src.decoder import run_generation
+        return run_generation(config, device)
 
     elif mode == "evaluate":
-        # M3 — not yet implemented
-        logger.info("Mode 'evaluate' selected — importing metrics module (M3)")
-        try:
-            from src.metrics import run_evaluation  # noqa: F401
-            return run_evaluation(config, device)
-        except ImportError:
-            raise NotImplementedError(
-                "metrics.py is not yet implemented. "
-                "Set pipeline.mode = 'extract' in config.yaml for M1."
-            )
+        # M3 — compute BLEU/CIDEr/ROUGE-L/METEOR across all runs
+        logger.info("Mode 'evaluate' selected — running metrics module (M3)")
+        from src.metrics import run_evaluation
+        return run_evaluation(config, device)
 
     else:
         raise ValueError(f"Unknown pipeline mode: '{mode}'")

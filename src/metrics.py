@@ -163,12 +163,20 @@ def compute_all_metrics(
 def compute_single_sample_metrics(
     hypothesis: str,
     references: list[str],
+    rouge_scorer=None,
 ) -> dict[str, float]:
     """
     Sentence-level BLEU-4 and ROUGE-L for a single image.
 
     NOTE: CIDEr is intentionally NOT computed here — CIDEr requires TF-IDF
     weights from the full corpus. Per-image CIDEr is undefined and misleading.
+
+    Args:
+        hypothesis   : generated caption string
+        references   : list of reference caption strings
+        rouge_scorer : optional pre-built RougeScorer instance. Pass one when
+                       calling this function in a loop to avoid re-instantiating
+                       the scorer (and its stemmer) on every call.
 
     Returns:
         {"bleu_4": float, "rouge_l": float}
@@ -181,9 +189,11 @@ def compute_single_sample_metrics(
     bleu_4  = round(bleu.score / 100.0, 4)
 
     # ROUGE-L against first reference
-    scorer  = rouge_lib.RougeScorer(["rougeL"], use_stemmer=True)
+    # Reuse a caller-supplied scorer if available; otherwise create one.
+    if rouge_scorer is None:
+        rouge_scorer = rouge_lib.RougeScorer(["rougeL"], use_stemmer=True)
     rouge_l = round(
-        scorer.score(references[0], hypothesis)["rougeL"].fmeasure, 4
+        rouge_scorer.score(references[0], hypothesis)["rougeL"].fmeasure, 4
     )
 
     return {

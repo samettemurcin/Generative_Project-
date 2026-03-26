@@ -189,7 +189,7 @@ def generate_caption(
         # Step 3: concatenate prefix + BOS
         inputs_embeds = torch.cat([prefix, bos_emb], dim=1)           # [1, K+1, 768]
 
-        # Step 4: attention mask — all real tokens
+        # Step 4: attention mask — all K+1 positions are real (prefix + BOS, no padding)
         attention_mask = torch.ones(1, K + 1, dtype=torch.long, device=device)
 
         # Step 5: build generation kwargs from config
