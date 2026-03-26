@@ -100,6 +100,11 @@ output:
   filename: "embeddings.npz"
   checkpoint_every: 100                # Save partial results every N batches
 
+  # M2/M3 output subdirectories — all under outputs/
+  weights_dir: "outputs/weights"       # trained checkpoints: weights/{run_id}/checkpoint_*.pt
+  runs_dir:    "outputs/runs"          # per-run artifacts:   runs/{run_id}/{metrics,captions,...}
+  cache_dir:   "outputs/cache"         # CLIP embedding cache: cache/clip_cache_{run_id}.pt
+
   # Versioned schema contract — extend for M2/M3, never remove existing keys
   schema:
     # M1 fields

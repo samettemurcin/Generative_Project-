@@ -134,8 +134,8 @@ GPT2_NAME  = config["models"]["gpt2"]
 CLASSES    = config["dataset"]["classes"]
 
 _forced      = int(os.environ.get("MILESTONE", "0"))
-_ckpt_path   = Path(os.environ.get("HF_CHECKPOINT", "runs/best/checkpoint_best.pt"))
-_runs_dir    = PROJECT_ROOT / "runs"
+_ckpt_path   = Path(os.environ.get("HF_CHECKPOINT", "outputs/weights/best/checkpoint_best.pt"))
+_runs_dir    = PROJECT_ROOT / "outputs" / "runs"
 _n_runs      = len(list(_runs_dir.glob("*/metrics.json"))) if _runs_dir.exists() else 0
 
 M2_READY = _forced == 2 or (_forced == 0 and _ckpt_path.exists())
