@@ -115,6 +115,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs",      type=int, default=3)
     parser.add_argument("--batch_size",  type=int, default=16)
     parser.add_argument("--lr",          type=float, default=5e-5)
+    parser.add_argument("--label_smoothing", type=float, default=0.0,
+                        help="Label smoothing factor (0.0=off, 0.1=recommended)")
     parser.add_argument("--seed",        type=int, default=42)
 
     # Resumption
@@ -155,7 +157,9 @@ def make_collate_fn(tokenizer, max_length: int = 77):
     """
     def collate_fn(batch: list[dict]) -> dict[str, Any]:
         clip_embs   = torch.tensor([s["clip_emb"] for s in batch], dtype=torch.float32)
-        captions    = [s["caption"] for s in batch]
+        # Caption dropout: randomly pick from all reference captions each batch.
+        # This data augmentation exposes the model to varied phrasing of the same image.
+        captions    = [random.choice(s.get("all_captions", [s["caption"]])) for s in batch]
         image_ids   = [s["image_id"] for s in batch]
         all_captions = [s["all_captions"] for s in batch]
 
@@ -481,6 +485,7 @@ def train_one_epoch(
     scheduler,
     tokenizer,
     device:       torch.device,
+    label_smoothing: float = 0.0,
 ) -> float:
     """
     Run one training epoch.
@@ -527,9 +532,19 @@ def train_one_epoch(
             outputs = gpt2_model(
                 inputs_embeds  = inputs_embeds,
                 attention_mask = attention_mask,
-                labels         = labels,
+                labels         = labels if label_smoothing == 0.0 else None,
             )
-            loss = outputs.loss
+
+            if label_smoothing > 0.0:
+                # Custom loss with label smoothing — reduces repetitive token overconfidence
+                loss_fn = torch.nn.CrossEntropyLoss(
+                    label_smoothing=label_smoothing, ignore_index=-100,
+                )
+                logits = outputs.logits[:, :-1].contiguous().view(-1, outputs.logits.size(-1))
+                tgts   = labels[:, 1:].contiguous().view(-1)
+                loss   = loss_fn(logits, tgts)
+            else:
+                loss = outputs.loss
 
         loss.backward()
 
@@ -895,6 +910,7 @@ def main() -> None:
         train_loss = train_one_epoch(
             epoch, train_loader, gpt2_model, prefix_proj,
             optimizer, scheduler, tokenizer, device,
+            label_smoothing=args.label_smoothing,
         )
 
         # Evaluate after each epoch
