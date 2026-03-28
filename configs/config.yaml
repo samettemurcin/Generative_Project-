@@ -29,6 +29,9 @@ dataset:
   pool_multiplier: 3                   # Candidate pool = target_n × pool_multiplier
   max_retries: 3                       # Retry attempts before fallback repair
   seed: 42                             # Reproducibility seed for all sampling
+  stratify: true                       # true = 10-class stratified (default)
+                                       # false = full dataset, no class filtering
+  max_samples: -1                      # Max images when stratify=false; -1 = all
 
   # 10 visually distinct flickr30k/COCO object categories.
   # Selected for near-zero caption co-occurrence — run the verification

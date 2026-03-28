@@ -53,31 +53,38 @@ CLASS_CAPTION_ALIASES: dict[str, list[str]] = {}
 
 def build_candidate_pool(
     config: dict[str, Any],
-) -> dict[str, list[dict]]:
+) -> "dict[str, list[dict]] | list[dict]":
     """
-    Build a stratified candidate pool from the configured dataset.
+    Build a candidate pool from the configured dataset.
 
-    Fetches (target_n * pool_multiplier) samples total, distributed evenly
-    across all configured classes. Returns a dict mapping each class name
-    to its list of raw candidate records.
+    Behaviour depends on ``config["dataset"]["stratify"]``:
+
+    * ``True`` (default): stratified mode — fills per-class buckets so the
+      final dataset has exactly ``target_n // len(classes)`` samples per
+      class.  Returns ``dict[class_name -> list[raw_record]]``.
+
+    * ``False``: flat mode — streams every image from the dataset with no
+      class filtering, stopping at ``config["dataset"]["max_samples"]``
+      (-1 = all images).  Returns ``list[raw_record]``.
 
     Each record is a plain dict with keys:
         image_id  : str   — dataset image identifier
         image     : PIL.Image.Image — raw PIL image (not yet processed)
         captions  : list[str] — all reference captions for this image
-        label     : str   — matched class name from config
+        label     : str   — matched class name (or "all" in flat mode)
 
     Args:
         config: Master config dict from load_config().
 
     Returns:
-        dict[class_name -> list[raw_record]]
-        Each list has at least per_class_target * pool_multiplier candidates
-        (subject to dataset availability).
+        Stratified mode → dict[class_name -> list[raw_record]]
+        Flat mode       → list[raw_record]
 
     Raises:
-        RuntimeError: If a class has zero candidates after full scan.
+        RuntimeError: If a class has zero candidates after full scan (stratified only).
     """
+    if not config["dataset"].get("stratify", True):
+        return _build_flat_pool(config)
     dataset_cfg = config["dataset"]
     classes     = dataset_cfg["classes"]
     split       = dataset_cfg["split"]
@@ -255,6 +262,66 @@ def flatten_candidates(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _build_flat_pool(config: dict[str, Any]) -> list[dict]:
+    """
+    Build a flat (non-stratified) candidate pool from the full dataset.
+
+    Streams every image record in the dataset without any class filtering,
+    stopping when ``max_samples`` records have been collected (or when the
+    stream is exhausted if max_samples == -1).
+
+    Args:
+        config: Master config dict from load_config().
+
+    Returns:
+        list[raw_record]  — each record has image_id, image, captions, label="all"
+    """
+    dataset_cfg = config["dataset"]
+    split       = dataset_cfg["split"]
+    seed        = dataset_cfg["seed"]
+    max_samples = dataset_cfg.get("max_samples", -1)
+
+    set_seed(seed)
+    logger.info(
+        "Building FLAT candidate pool | max_samples=%s | stratify=false",
+        "all" if max_samples < 0 else max_samples,
+    )
+
+    try:
+        ds_kwargs: dict[str, Any] = {"split": split, "streaming": True}
+        if "revision" in dataset_cfg:
+            ds_kwargs["revision"] = dataset_cfg["revision"]
+        if "year" in dataset_cfg:
+            ds_kwargs["year"] = dataset_cfg["year"]
+        if "coco_task" in dataset_cfg:
+            ds_kwargs["coco_task"] = dataset_cfg["coco_task"]
+        ds = load_dataset(dataset_cfg["name"], **ds_kwargs)
+        ds = ds.shuffle(seed=seed, buffer_size=10_000)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to load dataset '{dataset_cfg['name']}'.\nOriginal error: {e}"
+        ) from e
+
+    pool: list[dict] = []
+    scanned = 0
+
+    for sample in ds:
+        if max_samples >= 0 and len(pool) >= max_samples:
+            break
+        scanned += 1
+        record = _build_record(sample, "all")
+        if record is not None:
+            pool.append(record)
+        if scanned % 5000 == 0:
+            logger.info("Scanned %d | collected %d records", scanned, len(pool))
+
+    logger.info(
+        "Flat pool complete: %d records collected from %d scanned",
+        len(pool), scanned,
+    )
+    return pool
+
 
 def _match_sample_to_class(
     sample: dict,

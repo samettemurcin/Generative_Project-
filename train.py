@@ -214,21 +214,32 @@ def build_dataset(
     else:
         logger.info("Computing CLIP embeddings (will be cached to %s)", cache_path)
 
-        # 1. Build candidate pool — reuses existing data_loader.py
-        buckets  = build_candidate_pool(config)
-        selected = get_dataloader_splits(buckets, config)
-        flat     = flatten_candidates(selected)
+        # 1. Build candidate pool — reuses existing data_loader.py.
+        #    Inject max_samples so the flat (non-stratified) path can stop
+        #    streaming early instead of loading all 31k images unnecessarily.
+        config["dataset"]["max_samples"] = args.max_samples
+        buckets = build_candidate_pool(config)
+
+        if isinstance(buckets, list):
+            # Non-stratified (full-dataset) mode: build_candidate_pool already
+            # capped the stream at args.max_samples; no reserve pool needed.
+            flat         = buckets
+            reserve_pool: dict = {}
+        else:
+            # Stratified mode: select per-class targets then build reserve pool.
+            selected = get_dataloader_splits(buckets, config)
+            flat     = flatten_candidates(selected)
+            selected_ids = {
+                cls: {s["image_id"] for s in samples}
+                for cls, samples in selected.items()
+            }
+            reserve_pool = {
+                cls: [s for s in buckets[cls] if s["image_id"] not in selected_ids[cls]]
+                for cls in buckets
+            }
 
         # 2. Preprocess — reuses existing preprocessor.py
         preprocessor = Preprocessor(config)
-        selected_ids = {
-            cls: {s["image_id"] for s in samples}
-            for cls, samples in selected.items()
-        }
-        reserve_pool = {
-            cls: [s for s in buckets[cls] if s["image_id"] not in selected_ids[cls]]
-            for cls in buckets
-        }
         result = preprocessor.process_candidates(flat, reserve_pool=reserve_pool)
 
         if result.total_valid == 0:
