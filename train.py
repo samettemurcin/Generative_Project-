@@ -205,7 +205,8 @@ def build_dataset(
 
     cache_dir  = Path(config["output"].get("cache_dir", "outputs/cache"))
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = cache_dir / f"clip_cache_{args.run_id}.pt"
+    encoder_slug = args.encoder.replace("/", "_").replace("-", "_")
+    cache_path = cache_dir / f"clip_cache_{encoder_slug}.pt"
 
     if cache_path.exists():
         logger.info("Loading cached CLIP embeddings from %s", cache_path)
@@ -588,38 +589,83 @@ def evaluate(
 
     with torch.no_grad():
         from tqdm.auto import tqdm
-        for i, sample in enumerate(tqdm(val_samples, desc="  Evaluating", unit="img", leave=False)):
-            if i % 50 == 0:
-                logger.info("Evaluating %d/%d val samples", i, len(val_samples))
 
-            img_emb = torch.tensor(
-                sample["clip_emb"], dtype=torch.float32
-            ).unsqueeze(0).to(device)
+        EVAL_BATCH  = 32
+        n_prefix    = args.num_prefix
+        gpt2_dim    = gpt2_model.config.n_embd
 
-            caption = generate_caption(
-                image_embedding = img_emb,
-                prefix_proj     = prefix_proj,
-                gpt2_model      = gpt2_model,
-                tokenizer       = tokenizer,
-                config          = gen_config,
-                device          = device,
+        # Build generation kwargs once — shared across all batches
+        gen_kw: dict = dict(
+            max_new_tokens = 50,
+            pad_token_id   = tokenizer.eos_token_id,
+            eos_token_id   = tokenizer.eos_token_id,
+        )
+        if args.decoder == "beam":
+            gen_kw["num_beams"]      = args.beam_width
+            gen_kw["early_stopping"] = True
+        elif args.decoder in ("nucleus", "top_p"):
+            gen_kw["do_sample"]   = True
+            gen_kw["temperature"] = args.temperature
+            gen_kw["top_p"]       = args.top_p
+        else:                             # greedy (default)
+            gen_kw["do_sample"] = False
+
+        batches = list(range(0, len(val_samples), EVAL_BATCH))
+        for batch_start in tqdm(batches, desc="  Evaluating", unit="batch", leave=False):
+            batch = val_samples[batch_start : batch_start + EVAL_BATCH]
+            B     = len(batch)
+
+            if batch_start % 500 == 0:
+                logger.info("Evaluating %d/%d val samples", batch_start, len(val_samples))
+
+            # Stack pre-computed CLIP embeddings — no image loading needed [B, clip_dim]
+            clip_embs = torch.stack([
+                torch.tensor(s["clip_emb"], dtype=torch.float32) for s in batch
+            ]).to(device)
+
+            # Project all at once → [B, n_prefix * gpt2_dim] → [B, n_prefix, gpt2_dim]
+            prefix_flat   = prefix_proj(clip_embs)
+            prefix_embeds = prefix_flat.view(B, n_prefix, gpt2_dim)
+
+            # BOS embedding → [B, 1, gpt2_dim]
+            bos_id  = tokenizer.bos_token_id or tokenizer.eos_token_id
+            bos_ids = torch.full((B, 1), bos_id, dtype=torch.long, device=device)
+            bos_emb = gpt2_model.transformer.wte(bos_ids)
+
+            # Concatenate prefix + BOS → [B, n_prefix+1, gpt2_dim]
+            inputs_embeds  = torch.cat([prefix_embeds, bos_emb], dim=1)
+            attention_mask = torch.ones(B, inputs_embeds.shape[1],
+                                        dtype=torch.long, device=device)
+
+            # Batch generate all captions in one GPU call
+            output_ids = gpt2_model.generate(
+                inputs_embeds  = inputs_embeds,
+                attention_mask = attention_mask,
+                **gen_kw,
             )
 
-            img_id               = sample["image_id"]
-            hypotheses[img_id]   = [caption]
-            references[img_id]   = sample.get("all_captions", [sample["caption"]])
+            # Decode and store
+            for i, sample in enumerate(batch):
+                caption = tokenizer.decode(output_ids[i], skip_special_tokens=True).strip()
+                img_id  = sample["image_id"]
+                hypotheses[img_id] = [caption]
+                references[img_id] = sample.get("all_captions", [sample["caption"]])
 
-            # CLIP cosine similarity (image vs generated caption text)
+            # Batched CLIP similarity (optional)
             if clip_model is not None and clip_processor is not None:
                 try:
+                    captions_batch = [hypotheses[s["image_id"]][0] for s in batch]
                     txt_inputs = clip_processor(
-                        text=[caption], return_tensors="pt",
-                        padding=True, truncation=True, max_length=77,
+                        text        = captions_batch,
+                        return_tensors = "pt",
+                        padding     = True,
+                        truncation  = True,
+                        max_length  = 77,
                     ).to(device)
-                    txt_emb = clip_model.get_text_features(**txt_inputs)
-                    txt_emb = txt_emb / txt_emb.norm(dim=-1, keepdim=True)
-                    sim     = float((img_emb * txt_emb).sum())
-                    clip_sims.append(sim)
+                    txt_embs = clip_model.get_text_features(**txt_inputs)
+                    txt_embs = txt_embs / txt_embs.norm(dim=-1, keepdim=True)
+                    sims     = (clip_embs * txt_embs).sum(dim=-1)   # [B]
+                    clip_sims.extend(sims.cpu().tolist())
                 except Exception:
                     pass
 
