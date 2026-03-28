@@ -73,9 +73,17 @@ class PrefixProjection(nn.Module):
         super().__init__()
         self.num_prefix = num_prefix
         self.gpt2_dim   = gpt2_dim
-        # Single linear layer: clip_dim → num_prefix * gpt2_dim
-        # No activation, no dropout — keep it simple for small datasets.
-        self.projection = nn.Linear(clip_dim, num_prefix * gpt2_dim, bias=True)
+        # 2-layer MLP: clip_dim → hidden → num_prefix * gpt2_dim
+        # GELU + LayerNorm gives the projection enough capacity to discriminate
+        # between different images (a single Linear collapses all images to the
+        # same average caption — the MLP prevents this).
+        hidden_dim = clip_dim * 2           # 1024 for ViT-B/32, 1536 for ViT-L/14
+        self.projection = nn.Sequential(
+            nn.Linear(clip_dim, hidden_dim, bias=True),
+            nn.GELU(),
+            nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, num_prefix * gpt2_dim, bias=True),
+        )
 
     def forward(self, clip_embedding: torch.Tensor) -> torch.Tensor:
         """
@@ -195,11 +203,13 @@ def generate_caption(
         # Step 5: build generation kwargs from config
         strategy = gen_cfg.get("decoding_strategy", "greedy")
         gen_kwargs: dict[str, Any] = {
-            "inputs_embeds"  : inputs_embeds,
-            "attention_mask" : attention_mask,
-            "max_new_tokens" : gen_cfg.get("max_new_tokens", 50),
-            "pad_token_id"   : tokenizer.eos_token_id,
-            "eos_token_id"   : tokenizer.eos_token_id,
+            "inputs_embeds"       : inputs_embeds,
+            "attention_mask"      : attention_mask,
+            "max_new_tokens"      : gen_cfg.get("max_new_tokens", 50),
+            "pad_token_id"        : tokenizer.eos_token_id,
+            "eos_token_id"        : tokenizer.eos_token_id,
+            "no_repeat_ngram_size": gen_cfg.get("no_repeat_ngram_size", 3),
+            "length_penalty"      : gen_cfg.get("length_penalty", 1.0),
         }
 
         if strategy == "greedy":

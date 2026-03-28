@@ -186,8 +186,23 @@ def load_m2_model(checkpoint_path: str):
 
     ckpt = torch.load(checkpoint_path, map_location=device)
     prefix_proj.load_state_dict(ckpt["prefix_proj"])
-    if "lora_adapter" in ckpt:
+
+    if ckpt.get("lora_adapter") is not None:
+        # LoRA weights have PEFT-prefixed key names — must wrap the model
+        # with PEFT before loading, otherwise strict=False silently skips them.
+        from peft import LoraConfig, get_peft_model
+        ckpt_cfg = ckpt.get("config", {})
+        lora_rank = ckpt_cfg.get("lora_rank", 8)
+        lora_config = LoraConfig(
+            r              = lora_rank,
+            lora_alpha     = lora_rank * 2,
+            lora_dropout   = 0.0,
+            target_modules = ["c_attn", "c_proj"],
+            inference_mode = True,
+        )
+        gpt2_model = get_peft_model(gpt2_model, lora_config)
         gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
+        gpt2_model.eval()
 
     return gpt2_model, prefix_proj, tokenizer, device
 

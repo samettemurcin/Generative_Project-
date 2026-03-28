@@ -140,6 +140,9 @@ generation:
   temperature: 1.0                     # Scaling logits; <1 sharper, >1 more random
   top_p: 0.9                           # Nucleus sampling threshold
   max_new_tokens: 50                   # Max caption tokens to generate
+  num_prefix_tokens: 10                # Number of prefix tokens K (must match train.py --num_prefix)
+  no_repeat_ngram_size: 3              # Block repeated 3-grams (prevents looping text)
+  length_penalty: 1.0                  # >1.0 encourages longer captions; 1.2 recommended for beam
 
   # Output
   captions_file: "outputs/captions.jsonl"

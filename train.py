@@ -61,7 +61,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.decoder import PrefixProjection, build_inputs_embeds, generate_caption
 from src.metrics import compute_all_metrics, compute_single_sample_metrics
-from src.utils import get_device, load_config, set_seed, setup_logging
+from src.utils import get_device, get_num_workers, load_config, set_seed, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +258,7 @@ def build_dataset(
         clip_model     = CLIPModel.from_pretrained(args.encoder).to(device).eval()
         clip_processor = CLIPProcessor.from_pretrained(args.encoder)
 
-        clip_batch_size = 32
+        clip_batch_size = 256   # A100 (40GB) handles 256 safely; reduce to 32 if OOM
         all_valid       = result.valid_samples
         all_samples: list[dict] = []
 
@@ -437,13 +437,17 @@ def build_optimiser(
     """
     from transformers import get_cosine_schedule_with_warmup
 
-    # Always include prefix_proj. Add LoRA params only if they exist.
-    trainable_params = list(prefix_proj.parameters())
-    trainable_params += [p for p in gpt2_model.parameters() if p.requires_grad]
+    # Separate LR groups: prefix_proj is randomly initialised and needs a
+    # higher LR (×10) to learn fast; LoRA / GPT-2 adapters are pretrained
+    # and need a lower LR to avoid forgetting.
+    lora_params = [p for p in gpt2_model.parameters() if p.requires_grad]
+    param_groups = [
+        {"params": list(prefix_proj.parameters()), "lr": args.lr * 10},
+        {"params": lora_params,                    "lr": args.lr},
+    ]
 
     optimizer = torch.optim.AdamW(
-        trainable_params,
-        lr           = args.lr,
+        param_groups,
         weight_decay = 0.01,
         betas        = (0.9, 0.999),
     )
@@ -455,6 +459,7 @@ def build_optimiser(
         num_training_steps = n_train_steps,
     )
 
+    trainable_params = list(prefix_proj.parameters()) + lora_params
     total_trainable = sum(p.numel() for p in trainable_params)
     logger.info(
         "Optimiser: AdamW | lr=%.2e | warmup=%d steps | total trainable params=%d",
@@ -507,17 +512,24 @@ def train_one_epoch(
         caption_ids = batch["caption_ids"].to(device)
         attn_mask   = batch["attn_mask"].to(device)
 
-        inputs_embeds, attention_mask, labels = build_inputs_embeds(
-            clip_emb, caption_ids, attn_mask,
-            prefix_proj, gpt2_model, tokenizer, device,
-        )
+        # Mixed precision (bfloat16) — 2-3x faster on A100, no GradScaler needed.
+        # Falls back to float32 silently on CPU or older GPUs.
+        with torch.autocast(
+            device_type = device.type,
+            dtype       = torch.bfloat16,
+            enabled     = device.type == "cuda",
+        ):
+            inputs_embeds, attention_mask, labels = build_inputs_embeds(
+                clip_emb, caption_ids, attn_mask,
+                prefix_proj, gpt2_model, tokenizer, device,
+            )
 
-        outputs = gpt2_model(
-            inputs_embeds  = inputs_embeds,
-            attention_mask = attention_mask,
-            labels         = labels,
-        )
-        loss = outputs.loss
+            outputs = gpt2_model(
+                inputs_embeds  = inputs_embeds,
+                attention_mask = attention_mask,
+                labels         = labels,
+            )
+            loss = outputs.loss
 
         loss.backward()
 
@@ -596,9 +608,11 @@ def evaluate(
 
         # Build generation kwargs once — shared across all batches
         gen_kw: dict = dict(
-            max_new_tokens = 50,
-            pad_token_id   = tokenizer.eos_token_id,
-            eos_token_id   = tokenizer.eos_token_id,
+            max_new_tokens      = 50,
+            pad_token_id        = tokenizer.eos_token_id,
+            eos_token_id        = tokenizer.eos_token_id,
+            no_repeat_ngram_size = 3,
+            length_penalty       = 1.0,
         )
         if args.decoder == "beam":
             gen_kw["num_beams"]      = args.beam_width
@@ -860,7 +874,7 @@ def main() -> None:
         batch_size  = args.batch_size,
         shuffle     = True,
         collate_fn  = collate_fn,
-        num_workers = 0,    # safe default on Windows
+        num_workers = get_num_workers(config),  # 0 on Windows, auto on Linux/Colab
         pin_memory  = device.type == "cuda",
     )
 
