@@ -494,7 +494,14 @@ def train_one_epoch(
     total_loss = 0.0
     n_batches  = 0
 
-    for step, batch in enumerate(train_loader):
+    try:
+        from tqdm.auto import tqdm as _tqdm
+        _iter = _tqdm(enumerate(train_loader), total=len(train_loader),
+                      desc=f"Epoch {epoch}", unit="batch", leave=False)
+    except ImportError:
+        _iter = enumerate(train_loader)
+
+    for step, batch in _iter:
         clip_emb    = batch["clip_emb"].to(device)
         caption_ids = batch["caption_ids"].to(device)
         attn_mask   = batch["attn_mask"].to(device)
@@ -522,6 +529,10 @@ def train_one_epoch(
 
         total_loss += loss.item()
         n_batches  += 1
+
+        if hasattr(_iter, "set_postfix"):
+            _iter.set_postfix(loss=f"{loss.item():.4f}",
+                              avg=f"{total_loss / n_batches:.4f}")
 
         if step % 10 == 0:
             logger.info(
