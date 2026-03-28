@@ -587,7 +587,8 @@ def evaluate(
     }
 
     with torch.no_grad():
-        for i, sample in enumerate(val_samples):
+        from tqdm.auto import tqdm
+        for i, sample in enumerate(tqdm(val_samples, desc="  Evaluating", unit="img", leave=False)):
             if i % 50 == 0:
                 logger.info("Evaluating %d/%d val samples", i, len(val_samples))
 
