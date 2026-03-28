@@ -268,6 +268,8 @@ def build_dataset(
                     [s["pixel_values"] for s in batch]
                 ).to(device)                                         # [B, 3, H, W]
                 embs = clip_model.get_image_features(pixel_values=pixel_values)
+                if not isinstance(embs, torch.Tensor):              # transformers ≥4.x compat
+                    embs = embs.pooler_output
                 embs = embs / embs.norm(dim=-1, keepdim=True)       # L2-normalise
                 embs_cpu = embs.cpu().numpy()                        # [B, clip_dim]
 
