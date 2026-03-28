@@ -285,6 +285,15 @@ def build_dataset(
         torch.save({"samples": all_samples}, cache_path)
         logger.info("Cached %d CLIP embeddings to %s", len(all_samples), cache_path)
 
+        # Free the large pixel_values tensors and CLIP model — no longer needed.
+        # result.valid_samples holds 31k × (3×224×224) float32 ≈ 19 GB of RAM.
+        import gc
+        del result, all_valid, clip_model, clip_processor, preprocessor
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("Freed pixel_values tensors and CLIP model from memory.")
+
     # 4. Optional sample limit (for smoke tests)
     if args.max_samples > 0 and len(all_samples) > args.max_samples:
         all_samples = all_samples[:args.max_samples]
