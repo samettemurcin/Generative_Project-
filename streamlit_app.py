@@ -83,7 +83,155 @@ st.set_page_config(
 # we collapse the sidebar and hide chrome for a cleaner embedded look.
 # Standalone usage (no query param) is completely unaffected.
 # ---------------------------------------------------------------------------
-EMBED_MODE = st.query_params.get("embed", "").lower() == "true"
+EMBED_MODE = (
+    st.query_params.get("embed", "").lower() == "true"
+    or "hide_sidebar" in st.query_params.get_all("embed_options")
+)
+
+# ---------------------------------------------------------------------------
+# Global CSS theme — matches web/index.html design tokens
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+/* ── Typography ─────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,700;1,6..72,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* Apply Inter to everything */
+html, body, [class*="css"], .stMarkdown, .stText {
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* Headings use Newsreader serif */
+h1, h2, h3, .stTitle > div, [data-testid="stHeadingWithActionElements"] {
+    font-family: 'Newsreader', serif !important;
+    font-style: italic;
+    font-weight: 600;
+}
+
+/* ── Color palette (from web/index.html CSS vars) ───────────── */
+.stApp {
+    background-color: #fbf9f6 !important;
+}
+
+/* Primary buttons → warm brown */
+.stButton > button[kind="primary"],
+button[data-testid="stBaseButton-primary"] {
+    background-color: #99420d !important;
+    border-color: #99420d !important;
+    color: #ffffff !important;
+}
+.stButton > button[kind="primary"]:hover,
+button[data-testid="stBaseButton-primary"]:hover {
+    background-color: #b95925 !important;
+    border-color: #b95925 !important;
+}
+
+/* Secondary buttons */
+.stButton > button[kind="secondary"],
+button[data-testid="stBaseButton-secondary"] {
+    border-color: rgba(220,193,181,0.3) !important;
+    color: #99420d !important;
+}
+
+/* File uploader border */
+[data-testid="stFileUploader"] {
+    border-color: rgba(220,193,181,0.3) !important;
+}
+
+/* Tabs — active tab uses primary color */
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #99420d !important;
+    border-bottom-color: #99420d !important;
+}
+
+/* Metric values */
+[data-testid="stMetricValue"] {
+    color: #376847 !important;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Expander headers */
+details summary span {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    color: #56433a !important;
+}
+
+/* Caption box styling */
+.caption-box {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    line-height: 1.65;
+    color: #1b1c1a;
+    background: #ffffff;
+    padding: 1.25rem 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(220,193,181,0.2);
+    box-shadow: 0 0 0 1px rgba(220,193,181,0.1);
+}
+
+/* Sidebar styling */
+section[data-testid="stSidebar"] {
+    background-color: #fff4ed !important;
+}
+section[data-testid="stSidebar"] *:not(code):not(pre):not([data-testid="stCodeBlock"] *):not([data-testid="stSidebarCollapsedControl"] *):not(i):not(.material-symbols-rounded) {
+    color: #1b1c1a !important;
+}
+section[data-testid="stSidebar"] code,
+section[data-testid="stSidebar"] pre {
+    color: #e0e0e0 !important;
+}
+/* Hide the sidebar collapse button entirely */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Fix expander arrow icon rendering as text */
+[data-testid="stExpander"] summary svg,
+[data-testid="stExpander"] details summary [data-testid="stMarkdownContainer"] {
+    font-size: 0 !important;
+}
+[data-testid="stExpander"] summary span.material-symbols-rounded,
+details summary span {
+    font-size: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
+[data-testid="stExpander"] summary p {
+    font-size: 1rem !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    color: #1b1c1a !important;
+}
+section[data-testid="stSidebar"] .stRadio label,
+section[data-testid="stSidebar"] .stCheckbox label,
+section[data-testid="stSidebar"] .stSlider label,
+section[data-testid="stSidebar"] .stMarkdown,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3, section[data-testid="stSidebar"] h4 {
+    color: #1b1c1a !important;
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* Dividers */
+hr {
+    border-color: rgba(220,193,181,0.2) !important;
+}
+
+/* Dataframe header */
+[data-testid="stDataFrame"] th {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.7rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+</style>
+""", unsafe_allow_html=True)
 
 if EMBED_MODE:
     st.markdown("""
@@ -110,15 +258,31 @@ if EMBED_MODE:
         display: none !important;
     }
 
-    /* Remove default top padding that Streamlit adds for the header */
+    /* Remove default padding — fill the iframe fully */
     .stApp > div:first-child {
         padding-top: 0 !important;
     }
     .block-container {
-        padding-top: 1.5rem !important;
+        padding: 1rem 1.5rem !important;
+        max-width: 100% !important;
+    }
+    /* Tighter file uploader */
+    [data-testid="stFileUploader"] section {
+        padding: 0.5rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
+
+# Tighten standalone layout too
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 2rem !important;
+    padding-bottom: 1rem !important;
+    max-width: 1200px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Config and milestone detection
@@ -170,7 +334,7 @@ def load_m2_model(checkpoint_path: str):
     clip_model, _, device = load_clip()
 
     gpt2_model = GPT2LMHeadModel.from_pretrained(GPT2_NAME).to(device).eval()
-    tokenizer  = AutoTokenizer.from_pretrained(GPT2_NAME)
+    tokenizer  = AutoTokenizer.from_pretrained(GPT2_NAME, clean_up_tokenization_spaces=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -184,7 +348,7 @@ def load_m2_model(checkpoint_path: str):
         num_prefix=num_prefix,
     ).to(device)
 
-    ckpt = torch.load(checkpoint_path, map_location=device)
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
     prefix_proj.load_state_dict(ckpt["prefix_proj"])
 
     if ckpt.get("lora_adapter") is not None:
@@ -240,6 +404,35 @@ def clip_text_embedding(
     return emb / emb.norm(dim=-1, keepdim=True)
 
 
+# Broad label set for dynamic zero-shot classification (top 10 shown)
+_DYNAMIC_LABELS = [
+    # People & activities
+    "person", "man", "woman", "child", "baby", "crowd",
+    # Animals
+    "dog", "cat", "bird", "horse", "cow", "sheep", "elephant", "bear",
+    "zebra", "giraffe", "fish", "butterfly", "rabbit",
+    # Vehicles
+    "car", "truck", "bus", "motorcycle", "bicycle", "airplane", "boat",
+    "train", "helicopter",
+    # Food
+    "pizza", "cake", "sandwich", "fruit", "banana", "apple", "salad",
+    "hot dog", "donut", "ice cream", "coffee", "wine",
+    # Furniture & indoor
+    "chair", "couch", "bed", "table", "desk", "lamp", "television",
+    "laptop", "phone", "book", "clock", "vase", "toilet", "sink",
+    # Outdoor & nature
+    "tree", "flower", "mountain", "ocean", "beach", "river", "lake",
+    "sky", "sunset", "snow", "rain", "forest", "field", "garden",
+    # Objects
+    "umbrella", "backpack", "handbag", "suitcase", "skateboard",
+    "surfboard", "tennis racket", "ball", "kite", "frisbee",
+    "bench", "fire hydrant", "stop sign", "traffic light",
+    # Scenes
+    "kitchen", "bedroom", "bathroom", "restaurant", "street",
+    "park", "stadium", "office", "bridge", "building", "church",
+]
+
+
 def run_m1_pipeline(
     pil_image: Image.Image,
     clip_model,
@@ -249,23 +442,31 @@ def run_m1_pipeline(
     """
     M1: CLIP zero-shot classification.
 
-    Scores image against each class using "a photo of a {class}" prompts.
-    Returns dict with ranked scores, top class, cosine sim.
+    Scores image against a broad set of 80+ labels and returns top 10.
     """
     img_emb = clip_image_embedding(pil_image, clip_model, clip_processor, device)
 
-    scores = []
-    for cls in CLASSES:
-        prompt  = f"a photo of a {cls}"
-        txt_emb = clip_text_embedding(prompt, clip_model, clip_processor, device)
-        sim     = float((img_emb * txt_emb).sum())
-        scores.append((cls, sim))
+    # Batch all text embeddings at once for speed
+    prompts = [f"a photo of a {cls}" for cls in _DYNAMIC_LABELS]
+    inputs = clip_processor(
+        text=prompts, return_tensors="pt",
+        padding=True, truncation=True, max_length=77,
+    ).to(device)
+    with torch.no_grad():
+        txt_embs = clip_model.get_text_features(**inputs)
+    txt_embs = txt_embs / txt_embs.norm(dim=-1, keepdim=True)
 
+    # Compute all similarities at once
+    sims = (img_emb @ txt_embs.T).squeeze(0)
+    scores = [(cls, float(sims[i])) for i, cls in enumerate(_DYNAMIC_LABELS)]
     scores.sort(key=lambda x: x[1], reverse=True)
-    top_cls, top_sim = scores[0]
+
+    # Return top 10
+    top_scores = scores[:10]
+    top_cls, top_sim = top_scores[0]
 
     return {
-        "scores":      scores,
+        "scores":      top_scores,
         "top_class":   top_cls,
         "top_sim":     top_sim,
         "img_emb_np":  img_emb.cpu().numpy().flatten(),
@@ -401,11 +602,6 @@ with st.sidebar:
 
     st.markdown(f"**Active milestone:** {_milestone_badge(ACTIVE_MILESTONE)}")
 
-    st.divider()
-
-    show_embedding = st.checkbox("Show embedding chart", value=True)
-    show_scores    = st.checkbox("Show class scores chart", value=True)
-
     if M2_READY:
         st.divider()
         st.markdown("**Caption generation**")
@@ -457,11 +653,14 @@ with st.sidebar:
 # Main area
 # ---------------------------------------------------------------------------
 
-st.title("Image Captioning Demo")
-st.markdown(
-    "Upload any image. CLIP encodes it and — if a trained model is available "
-    "— GPT-2 generates a natural language description."
-)
+if EMBED_MODE:
+    st.markdown("#### Upload an image to generate a caption")
+else:
+    st.title("Image Captioning Demo")
+    st.markdown(
+        "Upload any image. CLIP encodes it and — if a trained model is available "
+        "— GPT-2 generates a natural language description."
+    )
 
 # Image upload
 uploaded = st.file_uploader(
@@ -472,95 +671,118 @@ uploaded = st.file_uploader(
 
 if uploaded is None:
     st.info("Upload an image to get started.")
-    st.stop()  # nothing to show yet — halt cleanly
+    st.stop()
 
 # Load image
 pil_image = Image.open(uploaded).convert("RGB")
 
-# Two-column layout: image on left, outputs on right
-col_img, col_out = st.columns([1, 2], gap="large")
+# ── Run pipeline (before layout so results are ready) ──────────────────
+pipeline_key = (
+    uploaded.name,
+    uploaded.size,
+    decoding_strategy,
+    beam_width if decoding_strategy == "beam" else 0,
+    round(temperature, 1) if decoding_strategy == "nucleus" else 0,
+    round(top_p, 2) if decoding_strategy == "nucleus" else 0,
+)
 
-with col_img:
-    st.image(pil_image, caption=uploaded.name, use_container_width=True)
-    st.caption(f"Size: {pil_image.width}×{pil_image.height}px")
+if st.session_state.get("pipeline_key") != pipeline_key:
+    with st.spinner("Running CLIP image encoder…"):
+        try:
+            clip_model, clip_processor, device = load_clip()
+            m1_result = run_m1_pipeline(pil_image, clip_model, clip_processor, device)
+            st.session_state["m1_result"] = m1_result
+            st.session_state["m1_error"]  = None
+        except Exception as e:
+            st.session_state["m1_result"] = None
+            st.session_state["m1_error"]  = str(e)
 
-with col_out:
-
-    # ── Run pipeline ────────────────────────────────────────────────────
-    # Use session_state to avoid re-running the full pipeline when a
-    # sidebar slider changes. Only re-run when image or M2 settings change.
-
-    pipeline_key = (
-        uploaded.name,
-        uploaded.size,
-        decoding_strategy,
-        beam_width if decoding_strategy == "beam" else 0,
-        round(temperature, 1) if decoding_strategy == "nucleus" else 0,
-        round(top_p, 2) if decoding_strategy == "nucleus" else 0,
-    )
-
-    if st.session_state.get("pipeline_key") != pipeline_key:
-        # ── M1 ────────────────────────────────────────────────────────
-        with st.spinner("Running CLIP image encoder…"):
+    if M2_READY:
+        with st.spinner("Generating caption…"):
             try:
+                gpt2_model, prefix_proj, tokenizer, device = load_m2_model(str(_ckpt_path))
                 clip_model, clip_processor, device = load_clip()
-                m1_result = run_m1_pipeline(pil_image, clip_model, clip_processor, device)
-                st.session_state["m1_result"] = m1_result
-                st.session_state["m1_error"]  = None
+                m2_result = run_m2_pipeline(
+                    pil_image, gpt2_model, prefix_proj, tokenizer,
+                    clip_model, clip_processor, device,
+                    decoding_strategy, beam_width, temperature, top_p,
+                )
+                st.session_state["m2_result"] = m2_result
+                st.session_state["m2_error"]  = None
             except Exception as e:
-                st.session_state["m1_result"] = None
-                st.session_state["m1_error"]  = str(e)
+                st.session_state["m2_result"] = None
+                st.session_state["m2_error"]  = str(e)
 
-        # ── M2 ────────────────────────────────────────────────────────
-        if M2_READY:
-            with st.spinner("Generating caption…"):
-                try:
-                    gpt2_model, prefix_proj, tokenizer, device = load_m2_model(str(_ckpt_path))
-                    m2_result = run_m2_pipeline(
-                        pil_image, gpt2_model, prefix_proj, tokenizer,
-                        clip_model, clip_processor, device,
-                        decoding_strategy, beam_width, temperature, top_p,
-                    )
-                    st.session_state["m2_result"] = m2_result
-                    st.session_state["m2_error"]  = None
-                except Exception as e:
-                    st.session_state["m2_result"] = None
-                    st.session_state["m2_error"]  = str(e)
+    st.session_state["pipeline_key"] = pipeline_key
 
-        st.session_state["pipeline_key"] = pipeline_key
+m1_result = st.session_state.get("m1_result")
+m1_error  = st.session_state.get("m1_error")
+m2_result = st.session_state.get("m2_result")
+m2_error  = st.session_state.get("m2_error")
 
-    m1_result = st.session_state.get("m1_result")
-    m1_error  = st.session_state.get("m1_error")
-    m2_result = st.session_state.get("m2_result")
-    m2_error  = st.session_state.get("m2_error")
+# ── Layout: Image (center) | Caption + Metrics (right) ────────────────
+col_image, col_results = st.columns([1, 1], gap="large")
 
-    # ── M1 outputs ──────────────────────────────────────────────────────
-    st.subheader("CLIP image analysis")
+with col_image:
+    st.image(pil_image, caption=uploaded.name, width="stretch")
 
-    if m1_error:
-        st.error(f"M1 pipeline failed: {m1_error}")
+with col_results:
+    # ── Caption ──────────────────────────────────────────────────────
+    if M2_READY:
+        if m2_error:
+            st.error(f"Caption generation failed: {m2_error}")
+        elif m2_result:
+            caption = m2_result["caption"]
+            cos_sim = m2_result["cos_sim"]
+            strat   = m2_result["strategy"]
 
-    elif m1_result:
-        top_cls  = m1_result["top_class"]
-        top_sim  = m1_result["top_sim"]
-        scores   = m1_result["scores"]
-        img_emb  = m1_result["img_emb_np"]
+            st.markdown(
+                "<p style='font-size:0.7rem; text-transform:uppercase; "
+                "letter-spacing:0.08em; font-weight:600; color:#99420d; "
+                "margin-bottom:0.25rem;'>Generated Caption</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='caption-box'>{caption}</div>",
+                unsafe_allow_html=True,
+            )
 
-        # Top class badge
-        st.markdown(
-            f"**Best matching class:** `{top_cls}` — "
-            + _alignment_badge(top_sim)
+            # ── Metrics rows (no Detected Class) ─────────────────────
+            st.markdown(
+                f"""
+                <div style="margin-top:1rem;">
+                <table style="width:100%; border-collapse:collapse; font-family:'Inter',sans-serif;">
+                <tr style="border-bottom:1px solid rgba(220,193,181,0.2);">
+                    <td style="padding:0.5rem 0; color:#625b55; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">CLIP Alignment</td>
+                    <td style="padding:0.5rem 0; text-align:right; font-size:1rem; font-weight:700; color:#376847;">{cos_sim:.4f}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(220,193,181,0.2);">
+                    <td style="padding:0.5rem 0; color:#625b55; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">Strategy</td>
+                    <td style="padding:0.5rem 0; text-align:right; font-size:1rem; font-weight:700; color:#376847;">{strat}{f' (k={m2_result["beam_width"]})' if strat == 'beam' else ''}</td>
+                </tr>
+                <tr>
+                    <td style="padding:0.5rem 0; color:#625b55; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">Caption Length</td>
+                    <td style="padding:0.5rem 0; text-align:right; font-size:1rem; font-weight:700; color:#376847;">{len(caption.split())} words</td>
+                </tr>
+                </table>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info(
+            "Caption generation not yet available. "
+            f"Train a model and place checkpoint at `{_ckpt_path}`."
         )
-        st.caption(
-            "Similarity = CLIP image embedding · CLIP text embedding  "
-            "(both in CLIP's contrastive latent space — this number is meaningful)"
-        )
 
-        # Scores table + chart in tabs
-        tab_table, tab_chart = st.tabs(["Scores table", "Scores chart"])
-
-        with tab_table:
+# ── Collapsible detail sections (below main layout, standalone only) ────
+if not EMBED_MODE:
+    if m1_result:
+        with st.expander("CLIP Image Analysis", expanded=False):
             import pandas as pd
+            scores  = m1_result["scores"]
+            img_emb = m1_result["img_emb_np"]
+
             df = pd.DataFrame(scores, columns=["class", "cosine_similarity"])
             df["alignment"] = df["cosine_similarity"].apply(
                 lambda s: "Strong" if s >= 0.25 else "Moderate" if s >= 0.15 else "Weak"
@@ -572,114 +794,43 @@ with col_out:
                     cmap="RdYlGn",
                     vmin=0.0, vmax=0.35,
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
-        with tab_chart:
-            if show_scores:
-                st.pyplot(make_scores_figure(scores), use_container_width=True)
+            st.pyplot(make_scores_figure(scores), width="stretch")
+            st.pyplot(make_embedding_figure(img_emb), width="stretch")
 
-        if show_embedding:
-            with st.expander("Embedding visualisation", expanded=False):
-                st.pyplot(make_embedding_figure(img_emb), use_container_width=True)
-                st.caption(
-                    f"Shape: {img_emb.shape[0]}-d | "
-                    f"Norm: {np.linalg.norm(img_emb):.4f} | "
-                    f"Mean: {img_emb.mean():.4f} | "
-                    f"Std: {img_emb.std():.4f}"
-                )
+# ── M3 comparison table (collapsible, standalone only) ──────────────────
+if M3_READY and not EMBED_MODE:
+    with st.expander("Run Comparison — All Experiments", expanded=False):
+        rows = []
+        for metrics_file in sorted(_runs_dir.glob("*/metrics.json")):
+            try:
+                m = json.loads(metrics_file.read_text())
+                rows.append({
+                    "Run":       m.get("run_id", metrics_file.parent.name),
+                    "Encoder":   m.get("encoder", "?").split("/")[-1],
+                    "Fine-tune": m.get("fine_tune", "?"),
+                    "Decoding":  m.get("decoding",  "?"),
+                    "BLEU-4":    round(m.get("bleu_4",  0), 3),
+                    "CIDEr":     round(m.get("cider",   0), 3),
+                    "METEOR":    round(m.get("meteor",  0), 3),
+                    "ROUGE-L":   round(m.get("rouge_l", 0), 3),
+                })
+            except Exception:
+                continue
 
-    # ── M2 outputs ──────────────────────────────────────────────────────
-    if M2_READY:
-        st.divider()
-        st.subheader("Generated caption")
-
-        if m2_error:
-            st.error(f"M2 pipeline failed: {m2_error}")
-
-        elif m2_result:
-            caption = m2_result["caption"]
-            cos_sim = m2_result["cos_sim"]
-            strat   = m2_result["strategy"]
-
-            # Caption display — full text, large font
-            st.markdown(
-                f"<p style='font-size:1.2rem; line-height:1.7; "
-                f"font-family:monospace; padding:1rem; "
-                f"background:#f9f9f9; border-radius:8px; border:1px solid #e0e0e0;'>"
-                f"{caption}</p>",
-                unsafe_allow_html=True,
+        if rows:
+            import pandas as pd
+            df_runs = pd.DataFrame(rows)
+            metric_cols = ["BLEU-4", "CIDEr", "METEOR", "ROUGE-L"]
+            st.dataframe(
+                df_runs.style.background_gradient(
+                    subset=metric_cols, cmap="YlGn",
+                ).highlight_max(
+                    subset=metric_cols, color="#d4edda",
+                ),
+                width="stretch",
+                hide_index=True,
             )
-
-            col_a, col_b, col_c = st.columns(3)
-            col_a.metric(
-                "CLIP alignment",
-                f"{cos_sim:.4f}",
-                help="Cosine similarity: CLIP image emb ↔ CLIP text emb on generated caption",
-            )
-            col_b.metric("Decoding strategy", strat)
-            col_c.metric("Caption length", f"{len(caption.split())} words")
-
-            st.markdown(_alignment_badge(cos_sim))
-
-            with st.expander("Generation details"):
-                detail_lines = [f"Strategy: {strat}"]
-                if strat == "beam":
-                    detail_lines.append(f"Beam width: {m2_result['beam_width']}")
-                elif strat == "nucleus":
-                    detail_lines.append(f"Temperature: {m2_result['temperature']:.1f}")
-                    detail_lines.append(f"Top-p: {top_p:.2f}")
-                st.code("\n".join(detail_lines))
-    else:
-        st.divider()
-        st.info(
-            "Caption generation not yet available. "
-            f"Train a model with `python train.py --run_id run_001` "
-            f"and place the checkpoint at `{_ckpt_path}`."
-        )
-
-# ── M3 comparison table ─────────────────────────────────────────────────────
-if M3_READY:
-    st.divider()
-    st.subheader("Run comparison — all experiments")
-    st.caption(f"Reading from `{_runs_dir}` — {_n_runs} runs found")
-
-    rows = []
-    for metrics_file in sorted(_runs_dir.glob("*/metrics.json")):
-        try:
-            m = json.loads(metrics_file.read_text())
-            rows.append({
-                "Run":       m.get("run_id", metrics_file.parent.name),
-                "Encoder":   m.get("encoder", "?").split("/")[-1],
-                "Injection": m.get("injection", "?"),
-                "Fine-tune": m.get("fine_tune", "?"),
-                "Decoding":  m.get("decoding",  "?"),
-                "BLEU-4":    round(m.get("bleu_4",  0), 3),
-                "CIDEr":     round(m.get("cider",   0), 3),
-                "METEOR":    round(m.get("meteor",  0), 3),
-                "ROUGE-L":   round(m.get("rouge_l", 0), 3),
-                "CLIP sim":  round(m.get("clip_sim_mean", 0), 3),
-            })
-        except Exception:
-            continue
-
-    if rows:
-        import pandas as pd
-        df_runs = pd.DataFrame(rows)
-        metric_cols = ["BLEU-4", "CIDEr", "METEOR", "ROUGE-L", "CLIP sim"]
-        st.dataframe(
-            df_runs.style.background_gradient(
-                subset=metric_cols, cmap="YlGn",
-            ).highlight_max(
-                subset=metric_cols, color="#d4edda",
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption(
-            "Green shading = higher is better. "
-            "Highlighted cell = best score in each column across all runs."
-        )
-    else:
-        st.warning("No valid metrics.json files found in runs/ directory.")

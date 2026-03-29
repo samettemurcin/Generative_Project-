@@ -123,14 +123,15 @@
   .pipeline-arrow { display: flex; align-items: center; padding-top: 3.5rem; color: var(--primary-fixed-dim); font-size: 1.5rem; flex-shrink: 0; }
 
   /* Demo */
-  .demo-section { padding: 6rem 0; }
-  .demo-header { margin-bottom: 3rem; }
+  .demo-section { padding: 3rem 0; }
+  .demo-header { margin-bottom: 1.5rem; }
   .demo-header h2 { color: var(--primary); margin-bottom: 0.5rem; }
   .demo-header p { color: var(--tertiary); max-width: 540px; }
-  .demo-layout { display: grid; grid-template-columns: 1fr 360px; gap: 2rem; }
+  .demo-layout { display: grid; grid-template-columns: 1fr; gap: 2rem; }
+  .demo-layout.has-panel { grid-template-columns: 1fr 360px; }
   .demo-iframe-wrap { background: var(--surface-container-lowest); border-radius: 0.75rem; overflow: hidden; box-shadow: 0 0 0 1px rgba(220,193,181,0.15); }
-  .demo-iframe-wrap iframe { width: 100%; height: 720px; border: none; display: block; }
-  .demo-iframe-fallback { width: 100%; height: 720px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--surface-container-low); gap: 0.75rem; padding: 2rem; text-align: center; }
+  .demo-iframe-wrap iframe { width: 100%; height: 85vh; min-height: 700px; border: none; display: block; }
+  .demo-iframe-fallback { width: 100%; height: 80vh; min-height: 600px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--surface-container-low); gap: 0.75rem; padding: 2rem; text-align: center; }
   .demo-iframe-fallback svg { width: 3rem; height: 3rem; stroke: var(--outline); fill: none; stroke-width: 1.5; }
   .demo-iframe-fallback .hint { font-size: 0.85rem; color: var(--on-surface-variant); font-weight: 500; }
   .demo-iframe-fallback .sub { font-size: 0.78rem; color: var(--tertiary); }
@@ -309,91 +310,88 @@ const CONFIG = {
   },
 
   // ─── Hero showcase ────────────────────────────────────────────
-  // This replaces the old screenshot placeholder.
-  // Shows a real example image + generated caption in the hero.
-  // Set `image` to a path/URL once you have a good example.
   hero: {
     image:   null,   // ← e.g. "images/hero_example.jpg" or a URL
-    caption: "A serene mountain lake reflecting the clear blue sky with a pine forest in the background.",
-    badges:  ["CLIP ViT-B/32", "GPT-2", "Beam k=5"],
+    caption: "A brown dog is running through the water with a ball in its mouth.",
+    badges:  ["CLIP ViT-B/32", "GPT-2", "LoRA r=8", "Beam k=5"],
   },
 
   // ─── Demo sidebar ─────────────────────────────────────────────
-  // Each strategy now has its OWN metrics.
+  // Each strategy has its own metrics from real runs.
   // The switcher updates caption + all metric values on click.
-  // Best strategy is auto-detected by highest CIDEr score.
   demo: {
     strategies: [
       {
         strategy: "Greedy",
-        caption:  "A mountain lake with trees and a blue sky.",
-        metrics:  { "BLEU-4": 0.087, "CIDEr": 0.482, "METEOR": 0.195, "CLIP Sim": 0.78 },
+        caption:  "A tan dog is running through the water with a ball in its mouth.",
+        metrics:  { "BLEU-4": 0.059, "METEOR": 0.303, "ROUGE-L": 0.198, "CLIP Sim": 0.19 },
       },
       {
         strategy: "Beam k=5",
-        caption:  "A serene mountain lake reflecting the clear blue sky with pine forest.",
-        metrics:  { "BLEU-4": 0.142, "CIDEr": 0.718, "METEOR": 0.267, "CLIP Sim": 0.91 },
+        caption:  "A brown dog is running through the water with a ball in its mouth.",
+        metrics:  { "BLEU-4": 0.080, "METEOR": 0.314, "ROUGE-L": 0.221, "CLIP Sim": 0.19 },
       },
       {
         strategy: "Nucleus p=0.9",
-        caption:  "Gentle ripples on a mountain lake mirror the sky above towering pines.",
-        metrics:  { "BLEU-4": 0.108, "CIDEr": 0.593, "METEOR": 0.251, "CLIP Sim": 0.85 },
+        caption:  "The dog has been running with a ball in his mouth on a beach.",
+        metrics:  { "BLEU-4": 0.029, "METEOR": 0.248, "ROUGE-L": 0.166, "CLIP Sim": 0.18 },
       },
-      // ← add more strategies freely — buttons auto-generate
     ],
 
-    // Which metric determines "best strategy"? (auto-highlighted with green dot)
-    bestMetric: "CIDEr",
+    bestMetric: "BLEU-4",
 
-    streamlitUrl: "http://localhost:8501?embed=true",
+    streamlitUrl: "http://localhost:8501/?embed=true&embed_options=hide_sidebar&embed_options=hide_toolbar&embed_options=hide_footer&embed_options=hide_padding",
     iframeLive: true,
   },
 
   // ─── Experiment results table ─────────────────────────────────
-  // Best-in-column is auto-detected. Set highlight: true to call out a row.
-  // Add as many rows as you want — the table handles any count.
+  // Real data from runs 001-008. Best-in-column auto-detected.
   experiments: [
-    { run: "#001", tuning: "Frozen",   injection: "Prefix", decoding: "Greedy",        bleu4: 0.087, cider: 0.482, meteor: 0.195, rougeL: 0.342 },
-    { run: "#002", tuning: "LoRA r=8", injection: "Prefix", decoding: "Greedy",        bleu4: 0.124, cider: 0.651, meteor: 0.238, rougeL: 0.412 },
-    { run: "#003", tuning: "LoRA r=8", injection: "Prefix", decoding: "Beam k=5",      bleu4: 0.142, cider: 0.718, meteor: 0.267, rougeL: 0.445, highlight: true },
-    { run: "#004", tuning: "LoRA r=8", injection: "Prefix", decoding: "Nucleus p=0.9", bleu4: 0.108, cider: 0.593, meteor: 0.251, rougeL: 0.398 },
+    { run: "#001", tuning: "Frozen",    injection: "Prefix", decoding: "Greedy",        bleu4: 0.033, cider: 0.000, meteor: 0.248, rougeL: 0.158 },
+    { run: "#002", tuning: "LoRA r=8",  injection: "Prefix", decoding: "Greedy",        bleu4: 0.059, cider: 0.001, meteor: 0.303, rougeL: 0.198 },
+    { run: "#004", tuning: "LoRA r=8",  injection: "Prefix", decoding: "Beam k=5",      bleu4: 0.080, cider: 0.001, meteor: 0.314, rougeL: 0.221, highlight: true },
+    { run: "#005", tuning: "LoRA r=8",  injection: "Prefix", decoding: "Beam k=5",      bleu4: 0.078, cider: 0.001, meteor: 0.310, rougeL: 0.220, note: "ViT-L/14" },
+    { run: "#006", tuning: "LoRA r=32", injection: "Prefix", decoding: "Beam k=5",      bleu4: 0.078, cider: 0.001, meteor: 0.310, rougeL: 0.220, note: "ViT-L/14" },
+    { run: "#007", tuning: "LoRA r=32", injection: "Prefix", decoding: "Nucleus p=0.9", bleu4: 0.029, cider: 0.003, meteor: 0.248, rougeL: 0.166, note: "ViT-L/14" },
+    { run: "#008", tuning: "LoRA r=8",  injection: "Prefix", decoding: "Beam k=5",      bleu4: 0.081, cider: 0.001, meteor: 0.314, rougeL: 0.212, note: "caption dropout" },
   ],
-  resultsCaption: "All experiments trained on MS COCO Captions — 1,000 samples, 10 classes. Best per column in green.",
+  resultsCaption: "All experiments trained on Flickr30k (31k images). Metrics on 500-sample validation set. Best per column in green.",
 
   // ─── Insight cards ("What Surprised Us") ──────────────────────
   insights: [
     {
-      finding:     "LoRA matched full fine-tuning at 2% of the trainable parameters.",
-      explanation: "Rank-8 LoRA adapters on attention layers achieved comparable CIDEr scores while using ~12 MB of additional VRAM — essentially negligible on consumer GPUs.",
+      finding:     "LoRA nearly doubled BLEU-4 at only 2% extra parameters.",
+      explanation: "Rank-8 LoRA adapters on GPT-2 attention layers jumped BLEU-4 from 0.033 to 0.059 (+80%) using only ~0.8M additional parameters on top of the frozen 124M GPT-2 model.",
     },
     {
-      finding:     "Beam search improved BLEU but made captions more generic.",
-      explanation: "Beam k=5 produced the highest quantitative scores, but nucleus sampling generated more diverse and semantically interesting descriptions. The metrics don't capture \"interestingness.\"",
+      finding:     "Beam search gave 36% free improvement over greedy decoding.",
+      explanation: "Switching from greedy to beam k=5 pushed BLEU-4 from 0.059 to 0.080 with zero extra training cost — purely a decoding-time change that explores more caption candidates.",
     },
     {
-      finding:     "Scaling from 1k→5k samples moved CIDEr 40% but BLEU-4 only 8%.",
-      explanation: "BLEU's n-gram precision saturates faster than CIDEr's TF-IDF weighting. This suggests CIDEr is the more sensitive metric for captioning tasks at small scale.",
+      finding:     "Nucleus sampling hurt all metrics despite producing more varied text.",
+      explanation: "Nucleus p=0.9 dropped BLEU-4 by 63% (0.080 to 0.029) and introduced hallucinations like wrong colors and objects. The stochastic sampling overrides visual grounding from CLIP.",
     },
   ],
 
   // ─── Failure gallery ──────────────────────────────────────────
+  // Real failure cases from run_004 and run_007
   failures: [
-    { image: null, generated: "a man on a man on a man on a skateboard", truth: "A young man performing a trick on a skateboard", reason: "Token repetition loop — the model's attention collapses when prefix conditioning is weak." },
-    { image: null, generated: "A cat sitting on a red couch next to a lamp", truth: "A dog lying on a blue rug in a living room", reason: "Object hallucination — GPT-2's language prior overrides visual evidence from CLIP embeddings." },
-    { image: null, generated: "A group of people standing in a room", truth: "Chefs preparing sushi behind a counter at a busy restaurant", reason: "Semantic flattening — the model defaults to safe, generic descriptions when the scene is complex." },
-    { image: null, generated: "A bird flying over a boat on the water", truth: "A boat docked at a marina with seagulls perched on the railing", reason: "Spatial relationship error — CLIP embeddings lose positional information." },
+    { image: null, generated: "The first time I saw a fire in a forest, I was so excited.", truth: "An airplane is flying over the mountain trying to extinguish a fire.", reason: "GPT-2 language prior dominance — frozen baseline reverts to essay-style text when prefix conditioning is weak." },
+    { image: null, generated: "A man in a red shirt is standing on a fire hose and is holding a fire extinguisher.", truth: "Red spray is being ejected by an orange and white plane flying over the hilltops.", reason: "Object hallucination — the model sees 'red' and 'fire' cues but invents a person instead of recognizing the airplane." },
+    { image: null, generated: "The dog is wearing a white shirt and a blue shirt.", truth: "A brown dog is running through water carrying a ball in its mouth.", reason: "Attribute hallucination — GPT-2 generates plausible clothing descriptions even for animals." },
+    { image: null, generated: "For the last three weeks I've been watching people's work as they look on at the sun.", truth: "Two people digging while a blond woman looks for artifacts.", reason: "Semantic flattening under nucleus sampling — stochastic decoding loses visual grounding entirely." },
   ],
 
   // ─── Architecture modules ─────────────────────────────────────
   architecture: [
-    { name: "data_loader",  desc: "Streams COCO via HuggingFace datasets with stratified sampling across 10 semantic classes." },
-    { name: "preprocessor", desc: "Normalizes imagery to CLIP tensors (224×224) and handles GPT-2 sub-word tokenization." },
-    { name: "pipeline",     desc: "End-to-end inference engine with integrated evaluation metrics and configurable decoding." },
-    { name: "decoder",      desc: "PrefixProjection layer mapping CLIP 512-d embeddings to GPT-2's token space via learned projection." },
-    { name: "train",        desc: "Training loop with LoRA adapters, mixed-precision support, and checkpoint management." },
+    { name: "data_loader",  desc: "Streams Flickr30k via HuggingFace datasets with caption dropout for training data augmentation." },
+    { name: "preprocessor", desc: "Normalizes images to CLIP tensors (224x224) and handles GPT-2 sub-word tokenization with BOS/EOS." },
+    { name: "decoder",      desc: "PrefixProjection MLP mapping CLIP 512-d embeddings to K learned prefix tokens in GPT-2's embedding space." },
+    { name: "train",        desc: "Training loop with LoRA adapters, cosine LR schedule, label smoothing, and per-sample metric logging." },
+    { name: "evaluate",     desc: "Corpus-level BLEU-4, CIDEr, ROUGE-L, METEOR, and CLIP similarity with multi-reference support." },
   ],
 
-  techStack: ["PyTorch", "HuggingFace", "OpenAI CLIP", "GPT-2", "MS COCO", "Streamlit", "Python 3.11", "CUDA", "PEFT / LoRA"],
+  techStack: ["PyTorch", "HuggingFace Transformers", "OpenAI CLIP", "GPT-2", "Flickr30k", "Streamlit", "Python 3.11", "CUDA", "PEFT / LoRA"],
 
   team: [
     { name: "Zhengxin Chen",  avatar: "https://api.dicebear.com/9.x/fun-emoji/svg?seed=ZhengxinChen&eyes=glasses&mouth=lilSmile&backgroundColor=ffdfbf" },
@@ -501,7 +499,7 @@ const CONFIG = {
         <!-- Metrics (update on strategy click) -->
         <div class="eval-metrics" id="eval-metrics"></div>
 
-        <p class="eval-note">Same image, different generation strategies. Metrics computed against COCO validation references.</p>
+        <p class="eval-note">Upload an image in the demo to see live results. Metrics shown here are from validation set averages.</p>
       </aside>
     </div>
   </div>
@@ -627,10 +625,17 @@ const CONFIG = {
     </div>`;
 
   // ── Demo frame
+  const demoLayout = document.querySelector('.demo-layout');
+  const evalPanel  = document.querySelector('.eval-panel');
   if (C.demo.iframeLive) {
+    // Iframe is live — Streamlit handles caption + metrics, hide the static eval panel
     $('#demo-frame-container').innerHTML =
       `<iframe src="${esc(C.demo.streamlitUrl)}" title="Image Captioning Demo"></iframe>`;
+    if (evalPanel) evalPanel.style.display = 'none';
+    // Full-width iframe (no panel)
   } else {
+    // Streamlit not running — show fallback + static eval panel
+    if (demoLayout) demoLayout.classList.add('has-panel');
     $('#demo-frame-container').innerHTML = `
       <div class="demo-iframe-fallback">
         <svg viewBox="0 0 24 24" style="width:3rem;height:3rem;stroke:var(--outline);fill:none;stroke-width:1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -639,7 +644,9 @@ const CONFIG = {
         <code>streamlit run streamlit_app.py</code>
       </div>`;
   }
-  $('#demo-note').textContent = 'Requires model server running locally · ' + C.demo.streamlitUrl.replace('http://','').replace('?embed=true','');
+  $('#demo-note').textContent = C.demo.iframeLive
+    ? 'Live demo powered by Streamlit · ' + C.demo.streamlitUrl.replace('http://','').replace('?embed=true','')
+    : 'Start the model server to activate the demo';
 
   // ── Strategy switcher (interactive)
   const strats = C.demo.strategies;
