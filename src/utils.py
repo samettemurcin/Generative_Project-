@@ -275,9 +275,14 @@ def setup_logging(config: dict[str, Any]) -> logging.Logger:
     root = logging.getLogger()
     root.setLevel(level)
 
-    # Clear any pre-existing handlers (e.g. Colab's default StreamHandler)
-    # to prevent duplicate log lines when running multiple experiments.
+    # Clear ALL handlers on root and named loggers to prevent duplicate
+    # log lines when running multiple experiments in a notebook session.
     root.handlers.clear()
+    for name in list(logging.Logger.manager.loggerDict):
+        lg = logging.getLogger(name)
+        if hasattr(lg, 'handlers'):
+            lg.handlers.clear()
+
     root.addHandler(file_handler)
     root.addHandler(console_handler)
 
