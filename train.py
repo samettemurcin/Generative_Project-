@@ -644,8 +644,10 @@ def evaluate(
             batch = val_samples[batch_start : batch_start + EVAL_BATCH]
             B     = len(batch)
 
-            if batch_start % 500 == 0:
-                logger.info("Evaluating %d/%d val samples", batch_start, len(val_samples))
+            if batch_start == 0 or (batch_start // EVAL_BATCH) % 5 == 0:
+                logger.info("Evaluating %d/%d val samples",
+                            min(batch_start + EVAL_BATCH, len(val_samples)),
+                            len(val_samples))
 
             # Stack pre-computed CLIP embeddings — no image loading needed [B, clip_dim]
             clip_embs = torch.stack([
