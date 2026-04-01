@@ -292,7 +292,7 @@ def run_generation(
         )
 
     logger.info("Loading checkpoint from %s", ckpt_path)
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
 
     clip_dim   = image_embeddings.shape[-1]
     gpt2_name  = config["models"]["gpt2"]

@@ -236,7 +236,7 @@ def build_dataset(
 
     if cache_path.exists():
         logger.info("Loading cached CLIP embeddings from %s", cache_path)
-        cache       = torch.load(cache_path, map_location="cpu")
+        cache       = torch.load(cache_path, map_location="cpu", weights_only=False)
         all_samples = cache["samples"]
     else:
         logger.info("Computing CLIP embeddings (will be cached to %s)", cache_path)
@@ -922,7 +922,7 @@ def main() -> None:
     best_val_loss = float("inf")
     if args.resume and Path(args.resume).exists():
         logger.info("Resuming from checkpoint: %s", args.resume)
-        ckpt = torch.load(args.resume, map_location=device)
+        ckpt = torch.load(args.resume, map_location=device, weights_only=True)
         prefix_proj.load_state_dict(ckpt["prefix_proj"])
         if ckpt.get("lora_adapter") is not None:
             gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
