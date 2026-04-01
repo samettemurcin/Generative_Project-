@@ -60,7 +60,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from src.decoder import PrefixProjection, build_inputs_embeds, generate_caption
-from src.metrics import compute_all_metrics, compute_single_sample_metrics
+from src.metrics import compute_all_metrics
 from src.utils import get_device, get_num_workers, load_config, set_seed, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -124,6 +124,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grad_accum_steps", type=int, default=1,
                         help="Gradient accumulation steps. "
                              "Effective batch size = batch_size × grad_accum_steps.")
+    parser.add_argument("--eval_freq", type=int, default=1,
+                        help="Evaluate every N epochs. The final epoch always evaluates "
+                             "regardless of this setting (default 1 = every epoch).")
 
     # Resumption
     parser.add_argument("--resume", type=str, default=None,
@@ -836,24 +839,13 @@ def write_run_outputs(
         json.dumps(metrics_payload, indent=2), encoding="utf-8"
     )
 
-    # captions.jsonl — one JSON line per val image
-    # Instantiate RougeScorer once outside the loop (stemmer init is non-trivial).
-    from rouge_score import rouge_scorer as rouge_lib
-    _rouge_scorer = rouge_lib.RougeScorer(["rougeL"], use_stemmer=True)
-
+    # captions.jsonl — one JSON line per val image (no per-sample metrics; use metrics.json for scores)
     with open(run_dir / "captions.jsonl", "w", encoding="utf-8") as f:
         for img_id, gen_list in hypotheses.items():
-            generated   = gen_list[0]
-            ref_list    = references.get(img_id, [])
-            per_sample  = compute_single_sample_metrics(
-                generated, ref_list or [""], rouge_scorer=_rouge_scorer
-            )
             record = {
                 "image_id"  : img_id,
-                "generated" : generated,
-                "references": ref_list,
-                "bleu_4"    : per_sample["bleu_4"],
-                "rouge_l"   : per_sample["rouge_l"],
+                "generated" : gen_list[0],
+                "references": references.get(img_id, []),
             }
             f.write(json.dumps(record) + "\n")
 
@@ -960,11 +952,17 @@ def main() -> None:
             grad_accum_steps=args.grad_accum_steps,
         )
 
-        # Evaluate after each epoch
-        scores, hypotheses, references = evaluate(
-            val_samples, gpt2_model, prefix_proj, tokenizer, device, args,
-            clip_model_eval, clip_proc_eval,
-        )
+        # Evaluate every eval_freq epochs; always evaluate on the final epoch
+        is_final_epoch = (epoch == args.epochs)
+        should_eval = (epoch % args.eval_freq == 0) or is_final_epoch
+        if should_eval:
+            scores, hypotheses, references = evaluate(
+                val_samples, gpt2_model, prefix_proj, tokenizer, device, args,
+                clip_model_eval, clip_proc_eval,
+            )
+        else:
+            logger.info("Epoch %d: eval skipped (eval_freq=%d)", epoch, args.eval_freq)
+            scores, hypotheses, references = {}, {}, {}
 
         # Invert BLEU-4 so that "best checkpoint" = lowest val_loss = highest BLEU-4.
         val_loss = 1.0 - scores.get("bleu_4", 0.0)
@@ -972,28 +970,32 @@ def main() -> None:
         train_log.append({
             "epoch"     : epoch,
             "train_loss": round(train_loss, 4),
-            "bleu_4"    : scores.get("bleu_4",  -1),
-            "cider"     : scores.get("cider",   -1),
-            "rouge_l"   : scores.get("rouge_l", -1),
-            "meteor"    : scores.get("meteor",  -1),
+            "bleu_4"    : scores.get("bleu_4",  -1) if should_eval else None,
+            "cider"     : scores.get("cider",   -1) if should_eval else None,
+            "rouge_l"   : scores.get("rouge_l", -1) if should_eval else None,
+            "meteor"    : scores.get("meteor",  -1) if should_eval else None,
             "lr"        : round(scheduler.get_last_lr()[0], 8),
         })
 
-        is_best = val_loss < best_val_loss
-        if is_best:
-            best_val_loss     = val_loss
-            epochs_no_improve = 0
-            final_scores      = scores
-            final_hypotheses  = hypotheses
-            final_references  = references
+        # Only update best / early-stop counter when eval actually ran
+        if should_eval:
+            is_best = val_loss < best_val_loss
+            if is_best:
+                best_val_loss     = val_loss
+                epochs_no_improve = 0
+                final_scores      = scores
+                final_hypotheses  = hypotheses
+                final_references  = references
+            else:
+                epochs_no_improve += 1
         else:
-            epochs_no_improve += 1
+            is_best = False
 
         save_checkpoint(weight_dir, epoch, prefix_proj, gpt2_model, val_loss, args, is_best,
                         optimizer=optimizer, scheduler=scheduler)
 
         # Early stopping — stop when val BLEU-4 hasn't improved for `patience` epochs
-        if args.patience > 0 and epochs_no_improve >= args.patience:
+        if should_eval and args.patience > 0 and epochs_no_improve >= args.patience:
             logger.info(
                 "Early stopping triggered at epoch %d "
                 "(no improvement for %d consecutive epochs, patience=%d)",
