@@ -118,6 +118,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label_smoothing", type=float, default=0.0,
                         help="Label smoothing factor (0.0=off, 0.1=recommended)")
     parser.add_argument("--seed",        type=int, default=42)
+    parser.add_argument("--patience",    type=int, default=3,
+                        help="Early stopping patience in epochs (0=disabled). "
+                             "Stops training when val BLEU-4 does not improve for this many epochs.")
+    parser.add_argument("--grad_accum_steps", type=int, default=1,
+                        help="Gradient accumulation steps. "
+                             "Effective batch size = batch_size × grad_accum_steps.")
 
     # Resumption
     parser.add_argument("--resume", type=str, default=None,
@@ -148,12 +154,18 @@ class CaptionDataset(Dataset):
         return self.samples[idx]
 
 
-def make_collate_fn(tokenizer, max_length: int = 77):
+def make_collate_fn(tokenizer, max_length: int = 50):
     """
     Returns a collate_fn that tokenizes captions on-the-fly.
 
     Tokenizing in the collate_fn (not __getitem__) avoids storing
     pre-tokenized tensors in the cache, keeping cache files small.
+
+    Captions are wrapped with BOS+EOS so training matches inference:
+    inference starts generation from [prefix | BOS], so training must
+    see BOS as the first real token after the prefix. Without this,
+    the model never learns to condition on the image and generates
+    generic GPT-2 text instead.
     """
     def collate_fn(batch: list[dict]) -> dict[str, Any]:
         clip_embs   = torch.tensor([s["clip_emb"] for s in batch], dtype=torch.float32)
@@ -162,6 +174,13 @@ def make_collate_fn(tokenizer, max_length: int = 77):
         captions    = [random.choice(s.get("all_captions", [s["caption"]])) for s in batch]
         image_ids   = [s["image_id"] for s in batch]
         all_captions = [s["all_captions"] for s in batch]
+
+        # Wrap with BOS+EOS to match inference prompt format.
+        # Inference prepends BOS after the prefix; training must see the same
+        # token at that position, otherwise the model ignores the image prefix.
+        bos = tokenizer.bos_token or ""
+        eos = tokenizer.eos_token or ""
+        captions = [bos + c + eos for c in captions]
 
         encoded = tokenizer(
             captions,
@@ -281,7 +300,7 @@ def build_dataset(
                 for i, sample in enumerate(batch):
                     all_samples.append({
                         "image_id"    : sample["image_id"],
-                        "clip_emb"    : embs_cpu[i].tolist(),
+                        "clip_emb"    : embs_cpu[i],  # numpy array — faster load + smaller cache
                         "caption"     : sample["caption"],
                         "all_captions": sample.get("all_captions", [sample["caption"]]),
                         "label"       : sample["label"],
@@ -486,6 +505,7 @@ def train_one_epoch(
     tokenizer,
     device:       torch.device,
     label_smoothing: float = 0.0,
+    grad_accum_steps: int = 1,
 ) -> float:
     """
     Run one training epoch.
@@ -546,17 +566,20 @@ def train_one_epoch(
             else:
                 loss = outputs.loss
 
-        loss.backward()
-
-        # Gradient clipping — prevents exploding gradients in early training
-        torch.nn.utils.clip_grad_norm_(all_trainable, max_norm=1.0)
-
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
+        # Scale loss for accumulation so gradients average over the full
+        # effective batch rather than summing — keeps effective LR stable.
+        (loss / grad_accum_steps).backward()
 
         total_loss += loss.item()
         n_batches  += 1
+
+        is_last_step = (step + 1 == len(train_loader))
+        if (step + 1) % grad_accum_steps == 0 or is_last_step:
+            # Gradient clipping — prevents exploding gradients in early training
+            torch.nn.utils.clip_grad_norm_(all_trainable, max_norm=1.0)
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
 
         if hasattr(_iter, "set_postfix"):
             _iter.set_postfix(loss=f"{loss.item():.4f}",
@@ -728,12 +751,17 @@ def save_checkpoint(
     val_loss:    float,
     args:        argparse.Namespace,
     is_best:     bool = False,
+    optimizer    = None,
+    scheduler    = None,
 ) -> Path:
     """
     Save prefix_proj + LoRA adapter weights (NOT full GPT-2).
 
     Full GPT-2 weights are always reloaded from HuggingFace Hub — this
     keeps each checkpoint under ~17MB instead of ~500MB.
+
+    Optionally saves optimizer and scheduler state for full resumption
+    (no wasted warmup steps when continuing a run).
 
     Returns:
         Path to the saved checkpoint file.
@@ -749,6 +777,8 @@ def save_checkpoint(
         # not the full GPT-2 base model (~17MB vs ~500MB). None for frozen/prefix_tuning.
         "lora_adapter": gpt2_model.state_dict() if args.finetune == "lora" else None,
         "config"      : vars(args),
+        "optimizer"   : optimizer.state_dict() if optimizer is not None else None,
+        "scheduler"   : scheduler.state_dict() if scheduler is not None else None,
     }
 
     path = weight_dir / f"checkpoint_epoch{epoch}.pt"
@@ -876,14 +906,6 @@ def main() -> None:
     except Exception as e:
         logger.warning("Could not load CLIP for eval CLIP-sim: %s", e)
 
-    # Resume from checkpoint if requested
-    if args.resume and Path(args.resume).exists():
-        logger.info("Resuming from checkpoint: %s", args.resume)
-        ckpt = torch.load(args.resume, map_location=device)
-        prefix_proj.load_state_dict(ckpt["prefix_proj"])
-        if ckpt.get("lora_adapter") is not None:
-            gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
-
     # ── DataLoader ───────────────────────────────────────────────────────────
     collate_fn   = make_collate_fn(tokenizer, max_length=config["preprocessing"]["max_token_length"])
     train_loader = DataLoader(
@@ -896,23 +918,46 @@ def main() -> None:
     )
 
     # ── Optimiser ────────────────────────────────────────────────────────────
-    n_train_steps = len(train_loader) * args.epochs
+    # n_train_steps = number of optimizer updates (not raw batches), so the
+    # cosine schedule aligns correctly with actual weight update frequency.
+    steps_per_epoch = max(1, len(train_loader) // args.grad_accum_steps)
+    n_train_steps   = steps_per_epoch * args.epochs
     optimizer, scheduler = build_optimiser(gpt2_model, prefix_proj, args, n_train_steps)
 
+    # ── Resume from checkpoint ───────────────────────────────────────────────
+    # Done AFTER build_optimiser so we can restore optimizer + scheduler state.
+    start_epoch   = 1
+    best_val_loss = float("inf")
+    if args.resume and Path(args.resume).exists():
+        logger.info("Resuming from checkpoint: %s", args.resume)
+        ckpt = torch.load(args.resume, map_location=device)
+        prefix_proj.load_state_dict(ckpt["prefix_proj"])
+        if ckpt.get("lora_adapter") is not None:
+            gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
+        if ckpt.get("optimizer") is not None:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        if ckpt.get("scheduler") is not None:
+            scheduler.load_state_dict(ckpt["scheduler"])
+        start_epoch   = ckpt.get("epoch", 0) + 1
+        best_val_loss = ckpt.get("val_loss", float("inf"))
+        logger.info("Resumed: starting from epoch %d, best_val_loss=%.4f",
+                    start_epoch, best_val_loss)
+
     # ── Training loop ────────────────────────────────────────────────────────
-    best_val_loss  = float("inf")
+    epochs_no_improve = 0
     train_log: list[dict] = []
     final_scores:    dict = {}
     final_hypotheses: dict = {}
     final_references: dict = {}
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         logger.info("--- Epoch %d/%d ---", epoch, args.epochs)
 
         train_loss = train_one_epoch(
             epoch, train_loader, gpt2_model, prefix_proj,
             optimizer, scheduler, tokenizer, device,
             label_smoothing=args.label_smoothing,
+            grad_accum_steps=args.grad_accum_steps,
         )
 
         # Evaluate after each epoch
@@ -937,11 +982,24 @@ def main() -> None:
         is_best = val_loss < best_val_loss
         if is_best:
             best_val_loss     = val_loss
+            epochs_no_improve = 0
             final_scores      = scores
             final_hypotheses  = hypotheses
             final_references  = references
+        else:
+            epochs_no_improve += 1
 
-        save_checkpoint(weight_dir, epoch, prefix_proj, gpt2_model, val_loss, args, is_best)
+        save_checkpoint(weight_dir, epoch, prefix_proj, gpt2_model, val_loss, args, is_best,
+                        optimizer=optimizer, scheduler=scheduler)
+
+        # Early stopping — stop when val BLEU-4 hasn't improved for `patience` epochs
+        if args.patience > 0 and epochs_no_improve >= args.patience:
+            logger.info(
+                "Early stopping triggered at epoch %d "
+                "(no improvement for %d consecutive epochs, patience=%d)",
+                epoch, epochs_no_improve, args.patience,
+            )
+            break
 
     # Use final epoch results if we never got a "best"
     if not final_scores:
