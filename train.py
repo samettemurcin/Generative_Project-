@@ -896,8 +896,7 @@ def main() -> None:
         clip_model_eval = CLIPModel.from_pretrained(args.encoder).to(device).eval()
         clip_proc_eval  = CLIPProcessor.from_pretrained(args.encoder)
     except Exception as e:
-        logger.warning("Could not load CLIP for eval CLIP-sim: %s", e)
-
+        logger.warning("Could not load CLIP for eval CLIP-sim: %s",e) 
     # ── DataLoader ───────────────────────────────────────────────────────────
     collate_fn   = make_collate_fn(tokenizer, max_length=config["preprocessing"]["max_token_length"])
     train_loader = DataLoader(
@@ -905,7 +904,7 @@ def main() -> None:
         batch_size  = args.batch_size,
         shuffle     = True,
         collate_fn  = collate_fn,
-        num_workers = get_num_workers(config),  # 0 on Windows, auto on Linux/Colab
+        num_workers = 0,  # 0 on Windows, auto on Linux/Colab
         pin_memory  = device.type == "cuda",
     )
 
