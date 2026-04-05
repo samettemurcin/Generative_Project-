@@ -50,8 +50,8 @@ def test_prefix_projection_shape_batch(prefix_proj):
 def test_prefix_projection_param_count():
     from src.decoder import PrefixProjection
     proj = PrefixProjection(clip_dim=512, gpt2_dim=768, num_prefix=10)
-    # weight: 512 * 7680 = 3,932,160  +  bias: 7,680  =  3,939,840
-    assert sum(p.numel() for p in proj.parameters()) == 3_939_840
+    # MLP: Linear(512,1024)=525312  +  LayerNorm(1024)=2048  +  Linear(1024,7680)=7872000  =  8399360
+    assert sum(p.numel() for p in proj.parameters()) == 8_399_360
 
 
 def test_prefix_projection_differentiable(prefix_proj):

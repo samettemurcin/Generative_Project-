@@ -772,16 +772,19 @@ def save_checkpoint(
     weight_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt = {
-        "run_id"      : args.run_id,
-        "epoch"       : epoch,
-        "val_loss"    : val_loss,
-        "prefix_proj" : prefix_proj.state_dict(),
+        "run_id"       : args.run_id,
+        "epoch"        : epoch,
+        "val_loss"     : val_loss,
+        "prefix_proj"  : prefix_proj.state_dict(),
         # With PEFT, state_dict() returns only the LoRA adapter weights,
         # not the full GPT-2 base model (~17MB vs ~500MB). None for frozen/prefix_tuning.
-        "lora_adapter": gpt2_model.state_dict() if args.finetune == "lora" else None,
-        "config"      : vars(args),
-        "optimizer"   : optimizer.state_dict() if optimizer is not None else None,
-        "scheduler"   : scheduler.state_dict() if scheduler is not None else None,
+        "lora_adapter" : gpt2_model.state_dict() if args.finetune == "lora" else None,
+        "config"       : vars(args),
+        "optimizer"    : optimizer.state_dict() if optimizer is not None else None,
+        "scheduler"    : scheduler.state_dict() if scheduler is not None else None,
+        # Architecture metadata — allows Streamlit to load any checkpoint without config
+        "encoder_name" : args.encoder,
+        "gpt2_name"    : args.gpt2,
     }
 
     path = weight_dir / f"checkpoint_epoch{epoch}.pt"

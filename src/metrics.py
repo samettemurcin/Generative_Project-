@@ -166,7 +166,7 @@ def compute_single_sample_metrics(
     rouge_scorer=None,
 ) -> dict[str, float]:
     """
-    Sentence-level BLEU-4 and ROUGE-L for a single image.
+    Sentence-level BLEU-4, ROUGE-L, and METEOR for a single image.
 
     NOTE: CIDEr is intentionally NOT computed here — CIDEr requires TF-IDF
     weights from the full corpus. Per-image CIDEr is undefined and misleading.
@@ -179,7 +179,7 @@ def compute_single_sample_metrics(
                        the scorer (and its stemmer) on every call.
 
     Returns:
-        {"bleu_4": float, "rouge_l": float}
+        {"bleu_4": float, "rouge_l": float, "meteor": float}
     """
     import sacrebleu
     from rouge_score import rouge_scorer as rouge_lib
@@ -196,9 +196,20 @@ def compute_single_sample_metrics(
         rouge_scorer.score(references[0], hypothesis)["rougeL"].fmeasure, 4
     )
 
+    # METEOR — sentence-level, no corpus dependency
+    try:
+        _ensure_nltk_data()
+        from nltk.translate.meteor_score import meteor_score as nltk_meteor
+        hyp_tokens = hypothesis.split()
+        ref_tokens_list = [r.split() for r in references]
+        meteor = round(float(nltk_meteor(ref_tokens_list, hyp_tokens)), 4)
+    except Exception:
+        meteor = -1.0
+
     return {
         "bleu_4" : bleu_4,
         "rouge_l": rouge_l,
+        "meteor" : meteor,
     }
 
 

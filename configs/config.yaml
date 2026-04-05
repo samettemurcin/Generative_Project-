@@ -63,8 +63,8 @@ sampling:
 # Models
 # -----------------------------------------------------------------------------
 models:
-  clip: "openai/clip-vit-base-patch32"
-  gpt2: "gpt2"
+  clip: "openai/clip-vit-large-patch14"
+  gpt2: "gpt2-medium"
   # [M3] swap gpt2 for a fine-tuned checkpoint path when ready, e.g.:
   # gpt2: "checkpoints/gpt2-finetuned-coco"
 
@@ -72,7 +72,7 @@ models:
 # Preprocessing
 # -----------------------------------------------------------------------------
 preprocessing:
-  image_size: 224                      # CLIP ViT-B/32 expected input resolution
+  image_size: 224                      # CLIP ViT-L/14 expected input resolution
   max_token_length: 77                 # CLIP hard limit; GPT-2 truncated to match
   use_clip_processor: true             # Delegate transforms to CLIPProcessor
                                        # Never set false unless you own the math.
@@ -111,8 +111,8 @@ output:
   # Versioned schema contract — extend for M2/M3, never remove existing keys
   schema:
     # M1 fields
-    image_embeddings: "image_embeddings"      # float32 [N, 512]
-    text_embeddings:  "text_embeddings"       # float32 [N, 512]
+    image_embeddings: "image_embeddings"      # float32 [N, 768]
+    text_embeddings:  "text_embeddings"       # float32 [N, 768]
     ids:              "ids"                   # str     [N]
     labels:           "labels"               # str     [N]
     # [M2] raw hidden states for injection (uncomment when needed)

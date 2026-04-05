@@ -331,25 +331,59 @@ def load_m2_model(checkpoint_path: str):
     from transformers import GPT2LMHeadModel, AutoTokenizer
     from src.decoder import PrefixProjection  # implemented in M2
 
-    clip_model, _, device = load_clip()
+    from transformers import CLIPModel, CLIPProcessor
 
-    gpt2_model = GPT2LMHeadModel.from_pretrained(GPT2_NAME).to(device).eval()
-    tokenizer  = AutoTokenizer.from_pretrained(GPT2_NAME, clean_up_tokenization_spaces=True)
+    device = get_device()
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    # Infer architecture from checkpoint weights so any checkpoint works,
+    # regardless of which CLIP/GPT-2 variant was used to train it.
+    proj_weights    = ckpt["prefix_proj"]
+    ckpt_clip_dim   = proj_weights["projection.0.weight"].shape[1]
+    ckpt_gpt2_dim   = proj_weights["projection.3.bias"].shape[0]  # output = num_prefix * gpt2_dim ... need gpt2_dim
+    # gpt2_dim comes from the last Linear's output divided by num_prefix;
+    # we recover it from the saved config or fall back to a dim→name lookup.
+    _dim_to_clip = {512: "openai/clip-vit-base-patch32", 768: "openai/clip-vit-large-patch14"}
+    _dim_to_gpt2 = {768: "gpt2", 1024: "gpt2-medium", 1280: "gpt2-large"}
+
+    ckpt_clip_name = ckpt.get("encoder_name") or _dim_to_clip.get(ckpt_clip_dim, CLIP_NAME)
+
+    # Infer GPT-2 variant from checkpoint: try each known dim, pick the one where
+    # projection.3.weight.shape[0] divides evenly AND yields a plausible num_prefix (1-20).
+    proj3_out = proj_weights["projection.3.weight"].shape[0]
+    if ckpt.get("gpt2_name"):
+        ckpt_gpt2_name = ckpt["gpt2_name"]
+        _inferred_gpt2_dim = None  # will be set after model load
+    else:
+        ckpt_gpt2_name = None
+        for _gdim, _gname in sorted(_dim_to_gpt2.items()):
+            if proj3_out % _gdim == 0 and 1 <= proj3_out // _gdim <= 20:
+                ckpt_gpt2_name = _gname
+                _inferred_gpt2_dim = _gdim
+                break
+        if ckpt_gpt2_name is None:
+            ckpt_gpt2_name = GPT2_NAME  # last-resort fallback
+
+    # Reload gpt2_dim from the actual gpt2 model config (authoritative)
+    gpt2_model = GPT2LMHeadModel.from_pretrained(ckpt_gpt2_name).to(device).eval()
+    real_gpt2_dim = gpt2_model.config.n_embd
+    num_prefix    = proj3_out // real_gpt2_dim
+
+    tokenizer = AutoTokenizer.from_pretrained(ckpt_gpt2_name, clean_up_tokenization_spaces=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    clip_dim   = clip_model.config.projection_dim    # 512 for ViT-B/32
-    gpt2_dim   = gpt2_model.config.n_embd             # 768 for gpt2
-    num_prefix = config["generation"].get("num_prefix_tokens", 10)
+    # Load the CLIP model that matches the checkpoint
+    clip_model_ckpt = CLIPModel.from_pretrained(ckpt_clip_name).to(device).eval()
+    clip_proc_ckpt  = CLIPProcessor.from_pretrained(ckpt_clip_name)
 
     prefix_proj = PrefixProjection(
-        clip_dim=clip_dim,
-        gpt2_dim=gpt2_dim,
+        clip_dim=ckpt_clip_dim,
+        gpt2_dim=real_gpt2_dim,
         num_prefix=num_prefix,
     ).to(device)
 
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    prefix_proj.load_state_dict(ckpt["prefix_proj"])
+    prefix_proj.load_state_dict(proj_weights)
 
     if ckpt.get("lora_adapter") is not None:
         # LoRA weights have PEFT-prefixed key names — must wrap the model
@@ -368,7 +402,7 @@ def load_m2_model(checkpoint_path: str):
         gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
         gpt2_model.eval()
 
-    return gpt2_model, prefix_proj, tokenizer, device
+    return gpt2_model, prefix_proj, tokenizer, clip_model_ckpt, clip_proc_ckpt, device
 
 
 # ---------------------------------------------------------------------------
@@ -700,11 +734,10 @@ if st.session_state.get("pipeline_key") != pipeline_key:
     if M2_READY:
         with st.spinner("Generating caption…"):
             try:
-                gpt2_model, prefix_proj, tokenizer, device = load_m2_model(str(_ckpt_path))
-                clip_model, clip_processor, device = load_clip()
+                gpt2_model, prefix_proj, tokenizer, m2_clip, m2_clip_proc, device = load_m2_model(str(_ckpt_path))
                 m2_result = run_m2_pipeline(
                     pil_image, gpt2_model, prefix_proj, tokenizer,
-                    clip_model, clip_processor, device,
+                    m2_clip, m2_clip_proc, device,
                     decoding_strategy, beam_width, temperature, top_p,
                 )
                 st.session_state["m2_result"] = m2_result
@@ -769,6 +802,57 @@ with col_results:
                 """,
                 unsafe_allow_html=True,
             )
+
+            # ── Optional reference captions for NLG metrics ───────────────
+            st.markdown(
+                "<p style='font-size:0.7rem; text-transform:uppercase; "
+                "letter-spacing:0.08em; font-weight:600; color:#99420d; "
+                "margin-top:1.25rem; margin-bottom:0.25rem;'>Reference Captions "
+                "<span style=\"font-weight:400; color:#625b55;\">(optional — one per line)</span></p>",
+                unsafe_allow_html=True,
+            )
+            ref_text = st.text_area(
+                label="Reference captions",
+                label_visibility="collapsed",
+                placeholder="Paste 1–5 reference captions here to compute BLEU-4, ROUGE-L, METEOR …",
+                height=90,
+                key="ref_captions",
+            )
+
+            if ref_text.strip():
+                ref_lines = [ln.strip() for ln in ref_text.strip().splitlines() if ln.strip()]
+                if ref_lines:
+                    from src.metrics import compute_single_sample_metrics
+                    per_img_scores = compute_single_sample_metrics(
+                        hypothesis=caption,
+                        references=ref_lines,
+                    )
+                    meteor_val = per_img_scores["meteor"]
+                    meteor_display = f"{meteor_val:.4f}" if meteor_val >= 0 else "N/A"
+                    st.markdown(
+                        f"""
+                        <div style="margin-top:0.75rem;">
+                        <p style="font-size:0.7rem; text-transform:uppercase;
+                           letter-spacing:0.08em; font-weight:600; color:#99420d;
+                           margin-bottom:0.25rem;">NLG Metrics</p>
+                        <table style="width:100%; border-collapse:collapse; font-family:'Inter',sans-serif;">
+                        <tr style="border-bottom:1px solid rgba(220,193,181,0.2);">
+                            <td style="padding:0.5rem 0; color:#625b55; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">BLEU-4</td>
+                            <td style="padding:0.5rem 0; text-align:right; font-size:1rem; font-weight:700; color:#376847;">{per_img_scores['bleu_4']:.4f}</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(220,193,181,0.2);">
+                            <td style="padding:0.5rem 0; color:#625b55; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">ROUGE-L</td>
+                            <td style="padding:0.5rem 0; text-align:right; font-size:1rem; font-weight:700; color:#376847;">{per_img_scores['rouge_l']:.4f}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:0.5rem 0; color:#625b55; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">METEOR</td>
+                            <td style="padding:0.5rem 0; text-align:right; font-size:1rem; font-weight:700; color:#376847;">{meteor_display}</td>
+                        </tr>
+                        </table>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
     else:
         st.info(
             "Caption generation not yet available. "
