@@ -244,6 +244,50 @@
   .arch-card code { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 0.95rem; color: var(--primary); display: block; margin-bottom: 0.6rem; padding-left: 0.25rem; }
   .arch-card p { font-size: 0.85rem; color: var(--tertiary); line-height: 1.55; padding-left: 0.25rem; }
 
+  /* Model architecture diagram */
+  .arch-diagram-section { padding: 4rem 0 6rem; background: var(--surface-container-lowest); }
+  .arch-diagram-section h2 { margin-bottom: 1rem; }
+  .arch-diagram-section .arch-subtitle { color: var(--tertiary); font-size: 0.95rem; margin-bottom: 2.5rem; max-width: 700px; }
+  .arch-diagram-wrap { background: var(--surface-container-lowest); border-radius: 0.75rem; padding: 2.5rem 2rem; overflow-x: auto; }
+  .arch-diagram-wrap svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  .arch-legend { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-top: 2rem; justify-content: center; }
+  .arch-legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--tertiary); }
+  .arch-legend-swatch { width: 14px; height: 14px; border-radius: 3px; }
+  .arch-specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; margin-top: 2.5rem; }
+  .arch-spec-card { background: var(--surface-container-low); padding: 1.25rem; border-radius: 0.25rem; }
+  .arch-spec-card .spec-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: var(--tertiary); margin-bottom: 0.3rem; }
+  .arch-spec-card .spec-value { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 700; color: var(--primary); }
+  .arch-spec-card .spec-desc { font-size: 0.78rem; color: var(--tertiary); margin-top: 0.3rem; }
+
+  /* Decoding algorithms section */
+  .algo-section { padding: 6rem 0; background: var(--warm-panel); }
+  .algo-section h2 { margin-bottom: 0.75rem; }
+  .algo-section .algo-subtitle { color: var(--tertiary); font-size: 0.95rem; margin-bottom: 3rem; max-width: 700px; }
+  .algo-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+  .algo-card { background: var(--surface-container-lowest); padding: 2rem 2rem 2rem 2.25rem; border-radius: 0.5rem; position: relative; overflow: hidden; box-shadow: 0 4px 40px rgba(27,28,26,0.04); }
+  .algo-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+  .algo-card.greedy::before { background: var(--tertiary); }
+  .algo-card.beam::before { background: var(--primary); }
+  .algo-card.nucleus::before { background: var(--secondary); }
+  .algo-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+  .algo-card-title { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.15rem; color: var(--on-background); }
+  .algo-card-badge { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.25rem 0.6rem; border-radius: 9999px; }
+  .algo-card.greedy .algo-card-badge { background: var(--surface-container); color: var(--tertiary); }
+  .algo-card.beam .algo-card-badge { background: var(--primary-fixed); color: var(--primary); }
+  .algo-card.nucleus .algo-card-badge { background: var(--secondary-container); color: var(--on-secondary-container); }
+  .algo-card-concept { font-size: 0.88rem; color: var(--tertiary); line-height: 1.6; margin-bottom: 1.25rem; }
+  .algo-card-params { background: var(--surface-container-low); border-radius: 0.25rem; padding: 1rem 1.25rem; }
+  .algo-card-params h4 { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: var(--tertiary); margin-bottom: 0.6rem; }
+  .algo-param-row { display: flex; justify-content: space-between; align-items: baseline; padding: 0.35rem 0; }
+  .algo-param-row + .algo-param-row { box-shadow: 0 -1px 0 0 rgba(220,193,181,0.15); }
+  .algo-param-name { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 600; color: var(--primary); }
+  .algo-param-desc { font-size: 0.75rem; color: var(--tertiary); text-align: right; max-width: 60%; }
+  .algo-card-effect { font-size: 0.78rem; color: var(--on-surface-variant); font-style: italic; margin-top: 1rem; padding-top: 0.75rem; box-shadow: 0 -1px 0 0 rgba(220,193,181,0.15); line-height: 1.5; }
+
+  @media (max-width: 768px) {
+    .algo-grid { grid-template-columns: 1fr; }
+  }
+
   /* Team */
   .team-section { background: var(--surface-container-low); padding: 6rem 0; }
   .team-layout { display: grid; grid-template-columns: 1fr 2fr; gap: 4rem; }
@@ -371,15 +415,19 @@ const CONFIG = {
       finding:     "Nucleus sampling hurt all metrics despite producing more varied text.",
       explanation: "Nucleus p=0.9 dropped BLEU-4 by 63% (0.080 to 0.029) and introduced hallucinations like wrong colors and objects. The stochastic sampling overrides visual grounding from CLIP.",
     },
+    {
+      finding:     "Repetition is a decoding problem, not a training problem.",
+      explanation: "Beam search produces high-probability paraphrase loops (same idea restated in different words) that bypass n-gram blocking. Setting repetition_penalty=1.5, no_repeat_ngram=2, and length_penalty=1.2 eliminates this without any retraining.",
+    },
   ],
 
   // ─── Failure gallery ──────────────────────────────────────────
   // Real failure cases from run_004 and run_007
   failures: [
-    { image: null, generated: "The first time I saw a fire in a forest, I was so excited.", truth: "An airplane is flying over the mountain trying to extinguish a fire.", reason: "GPT-2 language prior dominance — frozen baseline reverts to essay-style text when prefix conditioning is weak." },
-    { image: null, generated: "A man in a red shirt is standing on a fire hose and is holding a fire extinguisher.", truth: "Red spray is being ejected by an orange and white plane flying over the hilltops.", reason: "Object hallucination — the model sees 'red' and 'fire' cues but invents a person instead of recognizing the airplane." },
-    { image: null, generated: "The dog is wearing a white shirt and a blue shirt.", truth: "A brown dog is running through water carrying a ball in its mouth.", reason: "Attribute hallucination — GPT-2 generates plausible clothing descriptions even for animals." },
-    { image: null, generated: "For the last three weeks I've been watching people's work as they look on at the sun.", truth: "Two people digging while a blond woman looks for artifacts.", reason: "Semantic flattening under nucleus sampling — stochastic decoding loses visual grounding entirely." },
+    { image: null, generated: "A man and a woman are standing on a sand dune. The man is wearing a white shirt and the woman is wearing black pants. The man is standing on top of the woman while the woman stands on top of the man.", truth: "A man is sandboarding down a large sand dune while a woman watches from behind.", reason: "Sentence-level repetition — beam search finds high-probability loops where the same relationship is paraphrased. Adding repetition_penalty=1.5 or switching to contrastive search eliminates this." },
+    { image: null, generated: "A man in a red shirt is standing on a fire hose and is holding a fire extinguisher.", truth: "Red spray is being ejected by an orange and white plane flying over the hilltops.", reason: "Object hallucination — the model sees 'red' and 'fire' cues but invents a person instead of recognizing the airplane. The CLIP prefix provides color/scene info but not fine-grained object identity." },
+    { image: null, generated: "A little girl is holding a paintbrush while the little boy is painting on the wall. The little girl holds the paintbrush in her hand while the boy holds the brush in his.", truth: "Children sitting at a table painting with watercolors and brushes.", reason: "Paraphrase loops — the decoder restates the same action using slightly different wording, bypassing n-gram blocking. Contrastive search's hidden-state similarity penalty directly addresses this." },
+    { image: null, generated: "For the last three weeks I've been watching people's work as they look on at the sun.", truth: "Two people digging while a blond woman looks for artifacts.", reason: "Semantic flattening under nucleus sampling — stochastic decoding overrides visual grounding entirely, generating fluent but image-disconnected text driven by GPT-2's language prior." },
   ],
 
   // ─── Architecture modules ─────────────────────────────────────
@@ -390,6 +438,59 @@ const CONFIG = {
     { name: "train",        desc: "Training loop with LoRA adapters, cosine LR schedule, label smoothing, and per-sample metric logging." },
     { name: "evaluate",     desc: "Corpus-level BLEU-4, CIDEr, ROUGE-L, METEOR, and CLIP similarity with multi-reference support." },
   ],
+
+  // ─── Decoding algorithm intros ─────────────────────────────
+  algorithms: [
+    {
+      name: "Greedy Search",
+      cssClass: "greedy",
+      badge: "Baseline",
+      concept: "At each step, pick the single highest-probability token. The simplest possible strategy \u2014 no lookahead, no randomness. Fast and deterministic, but myopic: a locally optimal token choice can lead to globally poor captions because the decoder never explores alternative phrasings.",
+      params: [
+        { name: "repetition_penalty", desc: "Penalises any previously generated token. Default 1.5 \u2014 automatically prevents loops." }
+      ],
+      effect: "Produces short, safe captions. With repetition_penalty=1.5 and no_repeat_ngram=2 applied automatically, the worst degenerate loops are eliminated."
+    },
+    {
+      name: "Beam Search",
+      cssClass: "beam",
+      badge: "Best BLEU",
+      concept: "Maintains k parallel hypotheses (beams) at each decoding step, expanding each by the top-scoring next tokens, then pruning back to k. This explores a wider search space than greedy, finding higher-probability complete sequences. The final caption is the beam with the highest cumulative log-probability.",
+      params: [
+        { name: "beam_width (k)", desc: "Number of parallel hypotheses. Higher k = better quality but slower. k=5 is standard." },
+        { name: "length_penalty", desc: "Score normalization. >1.0 penalises long captions. Default 1.2." },
+        { name: "repetition_penalty", desc: "Penalises repeated tokens globally. Default 1.5 \u2014 prevents paraphrase loops." },
+        { name: "no_repeat_ngram", desc: "Blocks exact n-gram repetitions. n=2 prevents any 2-word phrase from repeating." }
+      ],
+      effect: "Best automatic metric scores (BLEU-4, METEOR). With repetition_penalty and length_penalty tuning, produces concise, non-repetitive captions."
+    },
+    {
+      name: "Nucleus Sampling",
+      cssClass: "nucleus",
+      badge: "Most diverse",
+      concept: "Instead of taking the argmax, sample from the smallest set of tokens whose cumulative probability exceeds a threshold p (the \"nucleus\"). Temperature scales the logit distribution before sampling \u2014 lower temperature sharpens the distribution, higher temperature flattens it. This introduces controlled randomness.",
+      params: [
+        { name: "top_p", desc: "Cumulative probability threshold. p=0.9 means sample from the top 90% probability mass." },
+        { name: "temperature", desc: "Logit scaling factor. <1.0 = sharper/safer, >1.0 = more random/creative." },
+        { name: "repetition_penalty", desc: "Penalises repeated tokens. Default 1.5 \u2014 reduces hallucination loops." }
+      ],
+      effect: "Produces the most varied captions across runs. But stochastic sampling can override visual grounding \u2014 the model may hallucinate objects or attributes not in the image."
+    },
+  ],
+
+  // ─── Model architecture specs ─────────────────────────────
+  archDiagram: {
+    specs: [
+      { label: "Vision Encoder", value: "ViT-L/14", desc: "CLIP visual transformer, 304M params" },
+      { label: "Image Embedding", value: "768-d", desc: "L2-normalized visual feature vector" },
+      { label: "Prefix Projection", value: "3-layer MLP", desc: "768 \u2192 1536 \u2192 1536 \u2192 20\u00D71024 with GELU + LayerNorm + Dropout" },
+      { label: "Prefix Length", value: "K = 20", desc: "Soft prompt tokens — doubled from 10 for richer visual encoding" },
+      { label: "Language Decoder", value: "GPT-2 Medium", desc: "24 layers, 16 heads, 1024-d hidden, 345M params" },
+      { label: "Fine-tuning", value: "LoRA r=16", desc: "Adapters on c_attn + c_proj, ~1.6M trainable params" },
+      { label: "Vocabulary", value: "50,257 BPE", desc: "GPT-2 byte-pair encoding tokenizer" },
+      { label: "Training Data", value: "Flickr30k", desc: "31k images, 5 reference captions each" },
+    ],
+  },
 
   techStack: ["PyTorch", "HuggingFace Transformers", "OpenAI CLIP", "GPT-2", "Flickr30k", "Streamlit", "Python 3.11", "CUDA", "PEFT / LoRA"],
 
@@ -416,6 +517,7 @@ const CONFIG = {
       <nav class="header-nav">
         <a href="#pipeline" class="active">Research</a>
         <a href="#architecture">Architecture</a>
+        <a href="#algorithms">Algorithms</a>
         <a href="#demo">Demo</a>
         <a href="#results">Results</a>
         <a href="#team">Team</a>
@@ -465,6 +567,145 @@ const CONFIG = {
         <p>Generates human-like captions conditioned on visual tokens</p>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- MODEL ARCHITECTURE DIAGRAM -->
+<section class="arch-diagram-section">
+  <div class="container">
+    <h2 class="t-headline">Model Architecture</h2>
+    <p class="arch-subtitle">Our image captioning pipeline bridges vision and language through a learned prefix projection. The CLIP encoder extracts semantic visual features, which are mapped into GPT-2's embedding space as soft prompt tokens.</p>
+    <div class="arch-diagram-wrap">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" width="1000" height="420" font-family="Inter, sans-serif">
+        <!-- Background -->
+        <rect width="1000" height="420" fill="#fbf9f6" rx="8"/>
+
+        <!-- Input Image -->
+        <rect x="30" y="160" width="100" height="100" rx="8" fill="#efeeeb" stroke="#dcc1b5" stroke-width="1.5"/>
+        <text x="80" y="205" text-anchor="middle" fill="#56433a" font-size="11" font-weight="600">Input</text>
+        <text x="80" y="222" text-anchor="middle" fill="#56433a" font-size="11" font-weight="600">Image</text>
+        <text x="80" y="248" text-anchor="middle" fill="#897268" font-size="9">224 x 224 x 3</text>
+
+        <!-- Arrow 1 -->
+        <line x1="135" y1="210" x2="170" y2="210" stroke="#dcc1b5" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- CLIP ViT-L/14 Encoder -->
+        <rect x="175" y="130" width="155" height="160" rx="8" fill="#376847" opacity="0.12"/>
+        <rect x="185" y="140" width="135" height="140" rx="6" fill="#376847" opacity="0.15"/>
+        <text x="252" y="165" text-anchor="middle" fill="#376847" font-size="12" font-weight="700">CLIP ViT-L/14</text>
+        <text x="252" y="182" text-anchor="middle" fill="#3b6d4b" font-size="9">Vision Transformer</text>
+        <!-- Transformer blocks -->
+        <rect x="200" y="195" width="105" height="22" rx="3" fill="#b6edc2" stroke="#376847" stroke-width="0.8"/>
+        <text x="252" y="210" text-anchor="middle" fill="#3b6d4b" font-size="8.5" font-weight="500">24 Transformer Blocks</text>
+        <rect x="200" y="223" width="105" height="22" rx="3" fill="#b6edc2" stroke="#376847" stroke-width="0.8"/>
+        <text x="252" y="238" text-anchor="middle" fill="#3b6d4b" font-size="8.5" font-weight="500">Multi-Head Attn (16h)</text>
+        <rect x="200" y="251" width="105" height="22" rx="3" fill="#b6edc2" stroke="#376847" stroke-width="0.8"/>
+        <text x="252" y="266" text-anchor="middle" fill="#3b6d4b" font-size="8.5" font-weight="500">Projection Head</text>
+
+        <!-- Arrow 2 -->
+        <line x1="335" y1="210" x2="375" y2="210" stroke="#dcc1b5" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="355" y="200" text-anchor="middle" fill="#897268" font-size="8">[1, 768]</text>
+
+        <!-- Prefix Projection MLP -->
+        <rect x="380" y="130" width="150" height="160" rx="8" fill="#99420d" opacity="0.1"/>
+        <text x="455" y="150" text-anchor="middle" fill="#99420d" font-size="12" font-weight="700">Prefix Projection</text>
+        <text x="455" y="165" text-anchor="middle" fill="#b95925" font-size="9">3-layer MLP + Dropout</text>
+        <!-- MLP layers -->
+        <rect x="395" y="175" width="120" height="18" rx="3" fill="#ffdbcc" stroke="#99420d" stroke-width="0.8"/>
+        <text x="455" y="187" text-anchor="middle" fill="#99420d" font-size="8" font-weight="500">Linear(768, 1536)</text>
+        <rect x="395" y="197" width="120" height="18" rx="3" fill="#ffdbcc" stroke="#99420d" stroke-width="0.8"/>
+        <text x="455" y="209" text-anchor="middle" fill="#99420d" font-size="8" font-weight="500">GELU + LayerNorm</text>
+        <rect x="395" y="219" width="120" height="18" rx="3" fill="#ffdbcc" stroke="#99420d" stroke-width="0.8"/>
+        <text x="455" y="231" text-anchor="middle" fill="#99420d" font-size="8" font-weight="500">Dropout + Linear(1536)</text>
+        <rect x="395" y="241" width="120" height="18" rx="3" fill="#ffdbcc" stroke="#99420d" stroke-width="0.8"/>
+        <text x="455" y="253" text-anchor="middle" fill="#99420d" font-size="8" font-weight="500">GELU + LayerNorm</text>
+        <rect x="395" y="263" width="120" height="18" rx="3" fill="#ffdbcc" stroke="#99420d" stroke-width="0.8"/>
+        <text x="455" y="275" text-anchor="middle" fill="#99420d" font-size="8" font-weight="500">Linear(1536, 20480)</text>
+
+        <!-- Arrow 3 -->
+        <line x1="535" y1="210" x2="575" y2="210" stroke="#dcc1b5" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="555" y="200" text-anchor="middle" fill="#897268" font-size="8">[20, 1024]</text>
+
+        <!-- Concat circle -->
+        <circle cx="590" cy="210" r="14" fill="#e4e2df" stroke="#897268" stroke-width="1"/>
+        <text x="590" y="214" text-anchor="middle" fill="#56433a" font-size="11" font-weight="700">+</text>
+        <!-- BOS arrow from below -->
+        <text x="590" y="270" text-anchor="middle" fill="#897268" font-size="8.5">BOS token</text>
+        <text x="590" y="282" text-anchor="middle" fill="#897268" font-size="8">[1, 1024]</text>
+        <line x1="590" y1="258" x2="590" y2="228" stroke="#dcc1b5" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- Arrow 4 -->
+        <line x1="608" y1="210" x2="645" y2="210" stroke="#dcc1b5" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="626" y="200" text-anchor="middle" fill="#897268" font-size="8">[21, 1024]</text>
+
+        <!-- GPT-2 Decoder -->
+        <rect x="650" y="100" width="165" height="220" rx="8" fill="#625b55" opacity="0.08"/>
+        <text x="732" y="125" text-anchor="middle" fill="#56433a" font-size="12" font-weight="700">GPT-2 Medium</text>
+        <text x="732" y="140" text-anchor="middle" fill="#625b55" font-size="9">Causal Language Model</text>
+        <!-- Decoder blocks -->
+        <rect x="665" y="155" width="135" height="22" rx="3" fill="#e4e2df" stroke="#625b55" stroke-width="0.8"/>
+        <text x="732" y="170" text-anchor="middle" fill="#56433a" font-size="8.5" font-weight="500">24 Transformer Blocks</text>
+        <rect x="665" y="183" width="135" height="22" rx="3" fill="#e4e2df" stroke="#625b55" stroke-width="0.8"/>
+        <text x="732" y="198" text-anchor="middle" fill="#56433a" font-size="8.5" font-weight="500">Causal Self-Attention</text>
+        <rect x="665" y="211" width="135" height="22" rx="3" fill="#e4e2df" stroke="#625b55" stroke-width="0.8"/>
+        <text x="732" y="226" text-anchor="middle" fill="#56433a" font-size="8.5" font-weight="500">Feed-Forward (4096-d)</text>
+        <rect x="665" y="239" width="135" height="22" rx="3" fill="#e4e2df" stroke="#625b55" stroke-width="0.8"/>
+        <text x="732" y="254" text-anchor="middle" fill="#56433a" font-size="8.5" font-weight="500">LM Head (50257 vocab)</text>
+        <!-- LoRA badge -->
+        <rect x="665" y="270" width="135" height="22" rx="3" fill="#ede9fe" stroke="#6b5ce7" stroke-width="0.8"/>
+        <text x="732" y="285" text-anchor="middle" fill="#6b5ce7" font-size="8.5" font-weight="600">LoRA Adapters (c_attn, c_proj)</text>
+
+        <!-- Arrow 5 -->
+        <line x1="820" y1="210" x2="860" y2="210" stroke="#dcc1b5" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- Output Caption -->
+        <rect x="865" y="155" width="115" height="110" rx="8" fill="#efeeeb" stroke="#dcc1b5" stroke-width="1.5"/>
+        <text x="922" y="195" text-anchor="middle" fill="#56433a" font-size="11" font-weight="600">Generated</text>
+        <text x="922" y="212" text-anchor="middle" fill="#56433a" font-size="11" font-weight="600">Caption</text>
+        <text x="922" y="235" text-anchor="middle" fill="#897268" font-size="8.5">Decoding</text>
+        <text x="922" y="248" text-anchor="middle" fill="#897268" font-size="8.5">Strategy</text>
+
+        <!-- Frozen / Trainable labels -->
+        <rect x="175" y="82" width="60" height="20" rx="10" fill="#b6edc2"/>
+        <text x="205" y="95" text-anchor="middle" fill="#376847" font-size="8" font-weight="600">FROZEN</text>
+        <rect x="380" y="82" width="72" height="20" rx="10" fill="#ffdbcc"/>
+        <text x="416" y="95" text-anchor="middle" fill="#99420d" font-size="8" font-weight="600">TRAINABLE</text>
+        <rect x="650" y="82" width="85" height="20" rx="10" fill="#ede9fe"/>
+        <text x="692" y="95" text-anchor="middle" fill="#6b5ce7" font-size="8" font-weight="600">LoRA TUNED</text>
+
+        <!-- Title -->
+        <text x="500" y="38" text-anchor="middle" fill="#1b1c1a" font-size="14" font-weight="700" font-family="Newsreader, serif" font-style="italic">CLIP + GPT-2 Prefix Captioning Architecture</text>
+        <text x="500" y="58" text-anchor="middle" fill="#897268" font-size="10">Image → Visual Embedding → Prefix Tokens → Autoregressive Caption Generation</text>
+
+        <!-- Param counts at bottom -->
+        <text x="252" y="320" text-anchor="middle" fill="#376847" font-size="9" font-weight="600">304M params (frozen)</text>
+        <text x="455" y="320" text-anchor="middle" fill="#99420d" font-size="9" font-weight="600">~17M params (trained)</text>
+        <text x="732" y="320" text-anchor="middle" fill="#6b5ce7" font-size="9" font-weight="600">345M + 1.6M LoRA r=16</text>
+
+        <!-- Arrow marker definition -->
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#897268"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+    <div class="arch-legend">
+      <div class="arch-legend-item"><div class="arch-legend-swatch" style="background:#b6edc2;"></div> Frozen (no gradient)</div>
+      <div class="arch-legend-item"><div class="arch-legend-swatch" style="background:#ffdbcc;"></div> Fully trainable</div>
+      <div class="arch-legend-item"><div class="arch-legend-swatch" style="background:#ede9fe;"></div> LoRA-adapted</div>
+      <div class="arch-legend-item"><div class="arch-legend-swatch" style="background:#e4e2df;"></div> Base model layers</div>
+    </div>
+    <div class="arch-specs" id="arch-specs"></div>
+  </div>
+</section>
+
+<!-- DECODING ALGORITHMS -->
+<section class="algo-section" id="algorithms">
+  <div class="container">
+    <h2 class="t-headline">Decoding Algorithms</h2>
+    <p class="algo-subtitle">The same trained model produces very different captions depending on how we search the output space. Each strategy trades off between quality, diversity, and coherence.</p>
+    <div class="algo-grid" id="algo-grid"></div>
   </div>
 </section>
 
@@ -740,9 +981,41 @@ const CONFIG = {
       </div>
     </div>`).join('');
 
-  // ── Architecture
+  // ── Architecture module cards
   $('#arch-grid').innerHTML = C.architecture.map(m => `
     <div class="arch-card"><code>${esc(m.name)}</code><p>${esc(m.desc)}</p></div>`).join('');
+
+  // ── Architecture specs
+  if (C.archDiagram && C.archDiagram.specs) {
+    $('#arch-specs').innerHTML = C.archDiagram.specs.map(s => `
+      <div class="arch-spec-card">
+        <div class="spec-label">${esc(s.label)}</div>
+        <div class="spec-value">${esc(s.value)}</div>
+        <div class="spec-desc">${esc(s.desc)}</div>
+      </div>`).join('');
+  }
+
+  // ── Decoding algorithms
+  if (C.algorithms) {
+    $('#algo-grid').innerHTML = C.algorithms.map(a => `
+      <div class="algo-card ${esc(a.cssClass)}">
+        <div class="algo-card-header">
+          <div class="algo-card-title">${esc(a.name)}</div>
+          <span class="algo-card-badge">${esc(a.badge)}</span>
+        </div>
+        <div class="algo-card-concept">${esc(a.concept)}</div>
+        ${a.params.length > 0 ? `
+          <div class="algo-card-params">
+            <h4>Hyperparameters</h4>
+            ${a.params.map(p => `
+              <div class="algo-param-row">
+                <span class="algo-param-name">${esc(p.name)}</span>
+                <span class="algo-param-desc">${esc(p.desc)}</span>
+              </div>`).join('')}
+          </div>` : ''}
+        <div class="algo-card-effect">${esc(a.effect)}</div>
+      </div>`).join('');
+  }
 
   // ── Tech badges
   $('#tech-badges').innerHTML = C.techStack.map(t => `<span class="tech-badge">${esc(t)}</span>`).join('');

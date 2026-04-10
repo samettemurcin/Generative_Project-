@@ -139,10 +139,11 @@ generation:
   beam_width: 5                        # Used when decoding_strategy = beam
   temperature: 1.0                     # Scaling logits; <1 sharper, >1 more random
   top_p: 0.9                           # Nucleus sampling threshold
-  max_new_tokens: 50                   # Max caption tokens to generate
-  num_prefix_tokens: 10                # Number of prefix tokens K (must match train.py --num_prefix)
-  no_repeat_ngram_size: 3              # Block repeated 3-grams (prevents looping text)
-  length_penalty: 1.0                  # >1.0 encourages longer captions; 1.2 recommended for beam
+  max_new_tokens: 40                   # Max caption tokens to generate (reduced from 50 to prevent rambling)
+  num_prefix_tokens: 20                # Number of prefix tokens K (must match train.py --num_prefix)
+  no_repeat_ngram_size: 2              # Block repeated 2-grams (stricter than default 3)
+  length_penalty: 1.2                  # >1.0 penalises overly long captions under beam search
+  repetition_penalty: 1.5              # Penalise ANY repeated token globally (always active, 1.0=off)
 
   # Output
   captions_file: "outputs/captions.jsonl"
@@ -153,15 +154,16 @@ generation:
 fine_tuning:
   strategy: "lora"                     # full | lora | prefix_tuning
   # LoRA hyperparameters
-  lora_rank: 8
+  lora_rank: 16                        # Increased from 8 for more adaptation capacity
   lora_alpha: 32
   lora_dropout: 0.1
   lora_target_modules:                 # GPT-2 attention projection layers
     - "c_attn"
     - "c_proj"
   # Training
-  learning_rate: 5.0e-5
-  num_epochs: 3
+  learning_rate: 1.0e-4                # Higher LR for prefix_proj (10x via separate param groups)
+  num_epochs: 5                        # 5 epochs with early stopping (patience=3)
+  label_smoothing: 0.1                 # Reduces hallucination / overconfident wrong predictions
   warmup_steps: 100
   gradient_accumulation_steps: 4
   # Checkpointing

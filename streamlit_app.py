@@ -377,10 +377,18 @@ def load_m2_model(checkpoint_path: str):
     clip_model_ckpt = CLIPModel.from_pretrained(ckpt_clip_name).to(device).eval()
     clip_proc_ckpt  = CLIPProcessor.from_pretrained(ckpt_clip_name)
 
+    # Infer MLP depth from checkpoint: depth=2 has keys 0,1,2,3;
+    # depth=3 also has keys 4,5,6,7 (the extra hidden layer block).
+    ckpt_depth = 2
+    if any(k.startswith("projection.4.") for k in proj_weights):
+        ckpt_depth = 3
+
     prefix_proj = PrefixProjection(
         clip_dim=ckpt_clip_dim,
         gpt2_dim=real_gpt2_dim,
         num_prefix=num_prefix,
+        depth=ckpt_depth,
+        dropout=0.0,  # inference — no dropout needed
     ).to(device)
 
     prefix_proj.load_state_dict(proj_weights)
@@ -508,17 +516,18 @@ def run_m1_pipeline(
 
 
 def run_m2_pipeline(
-    pil_image:         Image.Image,
+    pil_image:          Image.Image,
     gpt2_model,
     prefix_proj,
     tokenizer,
     clip_model,
     clip_processor,
     device,
-    decoding_strategy: str,
-    beam_width:        int,
-    temperature:       float,
-    top_p:             float,
+    decoding_strategy:  str,
+    beam_width:         int,
+    temperature:        float,
+    top_p:              float,
+    repetition_penalty: float = 1.5,
 ) -> dict:
     """
     M2: Full caption generation.
@@ -530,10 +539,11 @@ def run_m2_pipeline(
     img_emb = clip_image_embedding(pil_image, clip_model, clip_processor, device)
 
     gen_cfg = dict(config["generation"])
-    gen_cfg["decoding_strategy"] = decoding_strategy
-    gen_cfg["beam_width"]        = beam_width
-    gen_cfg["temperature"]       = temperature
-    gen_cfg["top_p"]             = top_p
+    gen_cfg["decoding_strategy"]  = decoding_strategy
+    gen_cfg["beam_width"]         = beam_width
+    gen_cfg["temperature"]        = temperature
+    gen_cfg["top_p"]              = top_p
+    gen_cfg["repetition_penalty"] = repetition_penalty
 
     caption = generate_caption(
         image_embedding = img_emb,
@@ -667,11 +677,17 @@ with st.sidebar:
             disabled=(decoding_strategy != "nucleus"),
             help="Nucleus sampling threshold. Only used when strategy = nucleus.",
         )
+        repetition_penalty = st.slider(
+            "Repetition penalty",
+            min_value=1.0, max_value=2.0, value=1.5, step=0.1,
+            help="Penalise any previously generated token. 1.0 = off, 1.5 = recommended.",
+        )
     else:
-        decoding_strategy = "beam"
-        beam_width        = 5
-        temperature       = 1.0
-        top_p             = 0.9
+        decoding_strategy  = "beam"
+        beam_width         = 5
+        temperature        = 1.0
+        top_p              = 0.9
+        repetition_penalty = 1.5
 
     st.divider()
     st.markdown("**Model info**")
@@ -699,16 +715,29 @@ else:
 # Image upload
 uploaded = st.file_uploader(
     "Choose an image",
-    type=["png", "jpg", "jpeg", "webp"],
-    help="Drag and drop or click to browse. Any image works — not limited to training classes.",
+    type=["png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "gif", "ico", "heic", "avif"],
+    help="Any image format up to 10 MB. The model works best with clear, well-lit photos.",
 )
 
 if uploaded is None:
     st.info("Upload an image to get started.")
     st.stop()
 
-# Load image
-pil_image = Image.open(uploaded).convert("RGB")
+# Validate file size (10 MB limit)
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+if uploaded.size > _MAX_FILE_SIZE:
+    st.error(f"Image too large ({uploaded.size / 1024 / 1024:.1f} MB). Maximum is 10 MB.")
+    st.stop()
+
+# Load and normalize image: any mode → RGB, handle EXIF rotation
+try:
+    from PIL import ImageOps
+    pil_image = Image.open(uploaded)
+    pil_image = ImageOps.exif_transpose(pil_image)  # fix phone rotation
+    pil_image = pil_image.convert("RGB")
+except Exception as e:
+    st.error(f"Cannot read this image: {e}")
+    st.stop()
 
 # ── Run pipeline (before layout so results are ready) ──────────────────
 pipeline_key = (
@@ -718,6 +747,7 @@ pipeline_key = (
     beam_width if decoding_strategy == "beam" else 0,
     round(temperature, 1) if decoding_strategy == "nucleus" else 0,
     round(top_p, 2) if decoding_strategy == "nucleus" else 0,
+    round(repetition_penalty, 1),
 )
 
 if st.session_state.get("pipeline_key") != pipeline_key:
@@ -739,6 +769,7 @@ if st.session_state.get("pipeline_key") != pipeline_key:
                     pil_image, gpt2_model, prefix_proj, tokenizer,
                     m2_clip, m2_clip_proc, device,
                     decoding_strategy, beam_width, temperature, top_p,
+                    repetition_penalty,
                 )
                 st.session_state["m2_result"] = m2_result
                 st.session_state["m2_error"]  = None

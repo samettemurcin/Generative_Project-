@@ -93,10 +93,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--finetune",   type=str, default="frozen",
                         choices=["frozen", "lora", "prefix_tuning"],
                         help="GPT-2 fine-tuning strategy")
-    parser.add_argument("--lora_rank",  type=int, default=8,
-                        help="LoRA rank (r). Used when --finetune=lora")
-    parser.add_argument("--num_prefix", type=int, default=10,
-                        help="Number of prefix tokens K")
+    parser.add_argument("--lora_rank",  type=int, default=16,
+                        help="LoRA rank (r). Used when --finetune=lora. 16=more capacity")
+    parser.add_argument("--num_prefix", type=int, default=20,
+                        help="Number of prefix tokens K (20 = more visual context)")
+    parser.add_argument("--proj_depth", type=int, default=3,
+                        help="PrefixProjection MLP depth (2=original, 3=deeper)")
+    parser.add_argument("--proj_dropout", type=float, default=0.1,
+                        help="Dropout between hidden layers in PrefixProjection")
 
     # Decoding
     parser.add_argument("--decoder",     type=str, default="greedy",
@@ -108,15 +112,17 @@ def parse_args() -> argparse.Namespace:
                         help="Sampling temperature (used when --decoder=nucleus)")
     parser.add_argument("--top_p",       type=float, default=0.9,
                         help="Nucleus sampling threshold")
+    parser.add_argument("--repetition_penalty", type=float, default=1.5,
+                        help="Global repetition penalty applied to all strategies (1.0=off, 1.5=default)")
 
     # Training
     parser.add_argument("--max_samples", type=int, default=1000,
                         help="Max training samples. -1 = use full dataset")
-    parser.add_argument("--epochs",      type=int, default=3)
+    parser.add_argument("--epochs",      type=int, default=5)
     parser.add_argument("--batch_size",  type=int, default=16)
-    parser.add_argument("--lr",          type=float, default=5e-5)
-    parser.add_argument("--label_smoothing", type=float, default=0.0,
-                        help="Label smoothing factor (0.0=off, 0.1=recommended)")
+    parser.add_argument("--lr",          type=float, default=1e-4)
+    parser.add_argument("--label_smoothing", type=float, default=0.1,
+                        help="Label smoothing factor (0.1=default, reduces hallucination)")
     parser.add_argument("--seed",        type=int, default=42)
     parser.add_argument("--patience",    type=int, default=3,
                         help="Early stopping patience in epochs (0=disabled). "
@@ -284,7 +290,12 @@ def build_dataset(
         clip_model     = CLIPModel.from_pretrained(args.encoder).to(device).eval()
         clip_processor = CLIPProcessor.from_pretrained(args.encoder)
 
-        clip_batch_size = 256   # A100 (40GB) handles 256 safely; reduce to 32 if OOM
+        # Auto-select CLIP batch size based on available VRAM
+        if device.type == "cuda":
+            vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+            clip_batch_size = 256 if vram_gb >= 20 else 64 if vram_gb >= 8 else 32
+        else:
+            clip_batch_size = 32
         all_valid       = result.valid_samples
         all_samples: list[dict] = []
 
@@ -378,6 +389,8 @@ def load_models(
         clip_dim   = clip_dim,
         gpt2_dim   = gpt2_dim,
         num_prefix = args.num_prefix,
+        depth      = args.proj_depth,
+        dropout    = args.proj_dropout,
     ).to(device)
 
     logger.info(
@@ -632,11 +645,12 @@ def evaluate(
 
     gen_config = {
         "generation": {
-            "decoding_strategy": args.decoder,
-            "beam_width"       : args.beam_width,
-            "temperature"      : args.temperature,
-            "top_p"            : args.top_p,
-            "max_new_tokens"   : 50,
+            "decoding_strategy" : args.decoder,
+            "beam_width"        : args.beam_width,
+            "temperature"       : args.temperature,
+            "top_p"             : args.top_p,
+            "max_new_tokens"    : 40,
+            "repetition_penalty": args.repetition_penalty,
         }
     }
 
@@ -648,12 +662,14 @@ def evaluate(
         gpt2_dim    = gpt2_model.config.n_embd
 
         # Build generation kwargs once — shared across all batches
+        # repetition_penalty and no_repeat_ngram_size are always active
         gen_kw: dict = dict(
-            max_new_tokens      = 50,
-            pad_token_id        = tokenizer.eos_token_id,
-            eos_token_id        = tokenizer.eos_token_id,
-            no_repeat_ngram_size = 3,
-            length_penalty       = 1.0,
+            max_new_tokens       = 40,
+            pad_token_id         = tokenizer.eos_token_id,
+            eos_token_id         = tokenizer.eos_token_id,
+            no_repeat_ngram_size = 2,
+            length_penalty       = 1.2,
+            repetition_penalty   = args.repetition_penalty,
         )
         if args.decoder == "beam":
             gen_kw["num_beams"]      = args.beam_width

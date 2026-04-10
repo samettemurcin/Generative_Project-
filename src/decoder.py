@@ -61,7 +61,11 @@ class PrefixProjection(nn.Module):
         gpt2_dim   : GPT-2 hidden dimension (768 for gpt2/gpt2-medium)
         num_prefix : Number of prefix tokens K. Default: 10.
                      More tokens = more conditioning capacity, more VRAM.
-                     10 is the standard ClipCap value.
+        depth      : Number of hidden layers. 2 = original ClipCap, 3 = deeper.
+                     Deeper MLPs better preserve fine-grained visual details
+                     (colors, spatial relationships) at the cost of more params.
+        dropout    : Dropout rate between hidden layers. 0.1 recommended for
+                     depth=3 to prevent overfitting on small datasets.
     """
 
     def __init__(
@@ -69,21 +73,29 @@ class PrefixProjection(nn.Module):
         clip_dim: int = 512,
         gpt2_dim: int = 768,
         num_prefix: int = 10,
+        depth: int = 3,
+        dropout: float = 0.1,
     ) -> None:
         super().__init__()
         self.num_prefix = num_prefix
         self.gpt2_dim   = gpt2_dim
-        # 2-layer MLP: clip_dim → hidden → num_prefix * gpt2_dim
-        # GELU + LayerNorm gives the projection enough capacity to discriminate
-        # between different images (a single Linear collapses all images to the
-        # same average caption — the MLP prevents this).
         hidden_dim = clip_dim * 2           # 1024 for ViT-B/32, 1536 for ViT-L/14
-        self.projection = nn.Sequential(
+
+        layers: list[nn.Module] = [
             nn.Linear(clip_dim, hidden_dim, bias=True),
             nn.GELU(),
             nn.LayerNorm(hidden_dim),
-            nn.Linear(hidden_dim, num_prefix * gpt2_dim, bias=True),
-        )
+        ]
+        # Additional hidden layers (depth=3 adds one extra hidden→hidden block)
+        for _ in range(depth - 2):
+            layers.extend([
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, hidden_dim, bias=True),
+                nn.GELU(),
+                nn.LayerNorm(hidden_dim),
+            ])
+        layers.append(nn.Linear(hidden_dim, num_prefix * gpt2_dim, bias=True))
+        self.projection = nn.Sequential(*layers)
 
     def forward(self, clip_embedding: torch.Tensor) -> torch.Tensor:
         """
@@ -210,6 +222,7 @@ def generate_caption(
             "eos_token_id"        : tokenizer.eos_token_id,
             "no_repeat_ngram_size": gen_cfg.get("no_repeat_ngram_size", 3),
             "length_penalty"      : gen_cfg.get("length_penalty", 1.0),
+            "repetition_penalty"  : gen_cfg.get("repetition_penalty", 1.0),
         }
 
         if strategy == "greedy":
@@ -305,10 +318,17 @@ def run_generation(
     gpt2_dim   = gpt2_model.config.n_embd
     num_prefix = config["generation"].get("num_prefix_tokens", 10)
 
+    # Infer depth from checkpoint weights
+    proj_weights = ckpt["prefix_proj"]
+    ckpt_depth = 2
+    if any(k.startswith("projection.4.") for k in proj_weights):
+        ckpt_depth = 3
+
     prefix_proj = PrefixProjection(
-        clip_dim=clip_dim, gpt2_dim=gpt2_dim, num_prefix=num_prefix
+        clip_dim=clip_dim, gpt2_dim=gpt2_dim, num_prefix=num_prefix,
+        depth=ckpt_depth, dropout=0.0,
     ).to(device)
-    prefix_proj.load_state_dict(ckpt["prefix_proj"])
+    prefix_proj.load_state_dict(proj_weights)
 
     if ckpt.get("lora_adapter") is not None:
         gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
