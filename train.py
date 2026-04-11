@@ -133,6 +133,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval_freq", type=int, default=1,
                         help="Evaluate every N epochs. The final epoch always evaluates "
                              "regardless of this setting (default 1 = every epoch).")
+    parser.add_argument("--eval_batch_size", type=int, default=128,
+                        help="Batch size for evaluation. Larger = faster on high-VRAM GPUs.")
 
     # Resumption
     parser.add_argument("--resume", type=str, default=None,
@@ -614,6 +616,20 @@ def train_one_epoch(
 
 
 # ---------------------------------------------------------------------------
+# Composite metric for checkpoint selection
+# ---------------------------------------------------------------------------
+
+
+def composite_score(scores: dict) -> float:
+    """Weighted composite metric for checkpoint selection (CIDEr-heavy)."""
+    b4 = max(scores.get("bleu_4", 0), 0)
+    ci = max(scores.get("cider", 0), 0)
+    rl = max(scores.get("rouge_l", 0), 0)
+    mt = max(scores.get("meteor", 0), 0)
+    return 0.3 * b4 + 0.4 * ci + 0.15 * rl + 0.15 * mt
+
+
+# ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
 
@@ -626,6 +642,8 @@ def evaluate(
     args:           argparse.Namespace,
     clip_model      = None,
     clip_processor  = None,
+    eval_batch_size: int = 128,
+    override_decoder: str | None = None,
 ) -> tuple[dict, dict, dict]:
     """
     Generate captions for all val samples and compute metrics.
@@ -654,10 +672,13 @@ def evaluate(
         }
     }
 
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast(
+        device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda",
+    ):
         from tqdm.auto import tqdm
 
-        EVAL_BATCH  = 32
+        decoder     = override_decoder or args.decoder
+        EVAL_BATCH  = eval_batch_size
         n_prefix    = args.num_prefix
         gpt2_dim    = gpt2_model.config.n_embd
 
@@ -671,10 +692,10 @@ def evaluate(
             length_penalty       = 1.2,
             repetition_penalty   = args.repetition_penalty,
         )
-        if args.decoder == "beam":
+        if decoder == "beam":
             gen_kw["num_beams"]      = args.beam_width
             gen_kw["early_stopping"] = True
-        elif args.decoder in ("nucleus", "top_p"):
+        elif decoder in ("nucleus", "top_p"):
             gen_kw["do_sample"]   = True
             gen_kw["temperature"] = args.temperature
             gen_kw["top_p"]       = args.top_p
@@ -937,8 +958,9 @@ def main() -> None:
 
     # ── Resume from checkpoint ───────────────────────────────────────────────
     # Done AFTER build_optimiser so we can restore optimizer + scheduler state.
-    start_epoch   = 1
-    best_val_loss = float("inf")
+    start_epoch    = 1
+    best_val_loss  = float("inf")
+    best_composite = -1.0
     if args.resume and Path(args.resume).exists():
         logger.info("Resuming from checkpoint: %s", args.resume)
         ckpt = torch.load(args.resume, map_location=device, weights_only=True)
@@ -950,7 +972,8 @@ def main() -> None:
         if ckpt.get("scheduler") is not None:
             scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch   = ckpt.get("epoch", 0) + 1
-        best_val_loss = ckpt.get("val_loss", float("inf"))
+        best_val_loss  = ckpt.get("val_loss", float("inf"))
+        best_composite = 1.0 - best_val_loss  # composite stored as 1.0 - val_loss
         logger.info("Resumed: starting from epoch %d, best_val_loss=%.4f",
                     start_epoch, best_val_loss)
 
@@ -975,16 +998,22 @@ def main() -> None:
         is_final_epoch = (epoch == args.epochs)
         should_eval = (epoch % args.eval_freq == 0) or is_final_epoch
         if should_eval:
+            # Fast intermediate eval: greedy + skip CLIP-sim; final epoch: full eval
+            fast = not is_final_epoch
             scores, hypotheses, references = evaluate(
                 val_samples, gpt2_model, prefix_proj, tokenizer, device, args,
-                clip_model_eval, clip_proc_eval,
+                clip_model_eval if not fast else None,
+                clip_proc_eval if not fast else None,
+                eval_batch_size=args.eval_batch_size,
+                override_decoder="greedy" if fast else None,
             )
         else:
             logger.info("Epoch %d: eval skipped (eval_freq=%d)", epoch, args.eval_freq)
             scores, hypotheses, references = {}, {}, {}
 
-        # Invert BLEU-4 so that "best checkpoint" = lowest val_loss = highest BLEU-4.
-        val_loss = 1.0 - scores.get("bleu_4", 0.0)
+        # Composite metric for checkpoint selection (higher = better)
+        epoch_composite = composite_score(scores) if should_eval else 0.0
+        val_loss = 1.0 - epoch_composite  # stored in checkpoint (lower = better)
 
         train_log.append({
             "epoch"     : epoch,
@@ -993,13 +1022,15 @@ def main() -> None:
             "cider"     : scores.get("cider",   -1) if should_eval else None,
             "rouge_l"   : scores.get("rouge_l", -1) if should_eval else None,
             "meteor"    : scores.get("meteor",  -1) if should_eval else None,
+            "composite" : round(epoch_composite, 4) if should_eval else None,
             "lr"        : round(scheduler.get_last_lr()[0], 8),
         })
 
         # Only update best / early-stop counter when eval actually ran
         if should_eval:
-            is_best = val_loss < best_val_loss
+            is_best = epoch_composite > best_composite
             if is_best:
+                best_composite    = epoch_composite
                 best_val_loss     = val_loss
                 epochs_no_improve = 0
                 final_scores      = scores
@@ -1022,8 +1053,21 @@ def main() -> None:
             )
             break
 
-    # Use final epoch results if we never got a "best"
-    if not final_scores:
+    # Re-evaluate best checkpoint with full eval (actual decoder, full val)
+    best_src = weight_dir / "checkpoint_best.pt"
+    if best_src.exists():
+        logger.info("Re-evaluating best checkpoint with %s decoder on %d val samples...",
+                    args.decoder, len(val_samples))
+        ckpt = torch.load(best_src, map_location=device, weights_only=False)
+        prefix_proj.load_state_dict(ckpt["prefix_proj"])
+        if ckpt.get("lora_adapter") is not None:
+            gpt2_model.load_state_dict(ckpt["lora_adapter"], strict=False)
+        final_scores, final_hypotheses, final_references = evaluate(
+            val_samples, gpt2_model, prefix_proj, tokenizer, device, args,
+            clip_model_eval, clip_proc_eval,
+            eval_batch_size=args.eval_batch_size,
+        )
+    elif not final_scores:
         final_scores     = scores
         final_hypotheses = hypotheses
         final_references = references
