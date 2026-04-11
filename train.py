@@ -294,7 +294,7 @@ def build_dataset(
 
         # Auto-select CLIP batch size based on available VRAM
         if device.type == "cuda":
-            vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             clip_batch_size = 256 if vram_gb >= 20 else 64 if vram_gb >= 8 else 32
         else:
             clip_batch_size = 32
