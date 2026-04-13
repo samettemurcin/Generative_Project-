@@ -340,7 +340,15 @@ def load_m2_model(checkpoint_path: str):
     # regardless of which CLIP/GPT-2 variant was used to train it.
     proj_weights    = ckpt["prefix_proj"]
     ckpt_clip_dim   = proj_weights["projection.0.weight"].shape[1]
-    ckpt_gpt2_dim   = proj_weights["projection.3.bias"].shape[0]  # output = num_prefix * gpt2_dim ... need gpt2_dim
+
+    # Find the last Linear layer's output dim (works for any depth).
+    _last_bias_key = sorted(
+        [k for k in proj_weights if k.endswith(".bias") and "LayerNorm" not in k],
+        key=lambda k: int(k.split(".")[1]),
+    )[-1]
+    _last_weight_key = _last_bias_key.replace(".bias", ".weight")
+    proj_final_out = proj_weights[_last_weight_key].shape[0]
+
     # gpt2_dim comes from the last Linear's output divided by num_prefix;
     # we recover it from the saved config or fall back to a dim→name lookup.
     _dim_to_clip = {512: "openai/clip-vit-base-patch32", 768: "openai/clip-vit-large-patch14"}
@@ -349,8 +357,8 @@ def load_m2_model(checkpoint_path: str):
     ckpt_clip_name = ckpt.get("encoder_name") or _dim_to_clip.get(ckpt_clip_dim, CLIP_NAME)
 
     # Infer GPT-2 variant from checkpoint: try each known dim, pick the one where
-    # projection.3.weight.shape[0] divides evenly AND yields a plausible num_prefix (1-20).
-    proj3_out = proj_weights["projection.3.weight"].shape[0]
+    # the final projection output divides evenly AND yields a plausible num_prefix (1-20).
+    proj3_out = proj_final_out
     if ckpt.get("gpt2_name"):
         ckpt_gpt2_name = ckpt["gpt2_name"]
         _inferred_gpt2_dim = None  # will be set after model load
